@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    package="com.spde.sclauncher">
+
+    <!--android:sharedUserId="android.uid.system"-->
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE"/>
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.SEND_SMS"/>
+
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!--
+    以下需要系统权限
+    去源码下拿证书build\target\product\security\下  platform.pk8和platform.x509.pem
+    java -jar signapk.jar platform.x509.pem platform.pk8 nosign.apk syssigned.apk
+    -->
+    <uses-permission android:name="android.permission.REBOOT"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+
+    <application
+        android:name=".HomeApplication"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:allowBackup="false"
+        android:largeHeap="true"
+        android:supportsRtl="true"
+        >
+        <activity
+            android:name=".Home"
+            android:launchMode="singleTask"
+            android:clearTaskOnLaunch="true"
+            android:screenOrientation="nosensor"
+            android:configChanges="mcc|mnc|keyboard|keyboardHidden|navigation|orientation|uiMode|screenSize|locale|layoutDirection"
+            >
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.MONKEY" />
+            </intent-filter>
+        </activity>
+        <provider android:name=".provider.SchoolCardProvider"
+            android:authorities="com.spde.sclauncher.provider"
+            android:exported="true"/>
+    </application>
+
+</manifest>

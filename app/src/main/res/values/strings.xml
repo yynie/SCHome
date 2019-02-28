@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">SCLauncher</string>
+    <string name="sos_none">SOS Number not set</string>
+    <string name="phone_number_none">Phone number not set</string>
+    <string name="out_call_forbid">Outgoing call forbidden</string>
+    <string name="sos_call_forbid_classmode">SOS call forbidden in class</string>
+    <string name="call_forbid_classmode">Call forbidden in class</string>
+</resources>
