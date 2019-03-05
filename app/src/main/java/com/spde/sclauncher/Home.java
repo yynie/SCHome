@@ -1,9 +1,11 @@
 package com.spde.sclauncher;
 
 import android.app.Activity;
+import android.content.BroadcastReceiver;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.database.ContentObserver;
@@ -15,6 +17,7 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.PowerManager;
 import android.provider.CallLog;
+import android.telephony.SmsManager;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -60,6 +63,7 @@ public class Home extends Activity implements OnBussinessEventListener {
     private Business scBusiness;
     private CallLogObserver callLogObserver;
     private AtomicReference<SOSAsyncTask> sosAsyncTaskRef = new AtomicReference<SOSAsyncTask>();
+    private BroadcastReceiver noPauseReceiver; //receive something even user not stay in launcher UI
     private Handler mHandler = new Handler(new Handler.Callback() {
         @Override
         public boolean handleMessage(Message msg) {
@@ -129,6 +133,11 @@ public class Home extends Activity implements OnBussinessEventListener {
             }
         });
 
+        IntentFilter noPauseIF = new IntentFilter();
+        noPauseIF.addAction("com.sped.sclauncher.sms_instruction");
+        noPauseReceiver = new NoPauseReceiver();
+        registerReceiver(noPauseReceiver, noPauseIF);
+
         /** --START--  school card start  --START-- */
         Intent intent = getIntent();
         boolean isPoweron = intent.getBooleanExtra("isPowerOn", false);
@@ -152,6 +161,28 @@ public class Home extends Activity implements OnBussinessEventListener {
         callLogObserver = new CallLogObserver(new Handler());
         getContentResolver().registerContentObserver(CallLog.Calls.CONTENT_URI, true, callLogObserver);
         /** --END--  Listen to call log changing  &  Report new in/out call to cloud  --END-- */
+    }
+
+    class NoPauseReceiver extends BroadcastReceiver{
+
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if(intent.getAction().equals("com.sped.sclauncher.sms_instruction")){
+                //adb shell am broadcast -a com.sped.sclauncher.sms_instruction --es phone "18900000000" --es cmd "dlcx"
+                String phone = intent.getStringExtra("phone");
+                String cmd = intent.getStringExtra("cmd");
+                log.i("phone="+phone+",cmd="+cmd);
+                if(cmd.equalsIgnoreCase("DLCX")){
+                    int battery = BatteryDataSource.getInstance().getBatteryPercent();
+                    String text = getResources().getString(R.string.dlcx_reply, String.valueOf(battery) + "%");
+                    SmsManager.getDefault().sendTextMessage(phone, null, text, null, null);
+                }else if(cmd.equalsIgnoreCase("QQSFE")){
+                    Intent dialIntent =  new Intent(Intent.ACTION_CALL,Uri.parse("tel:" + phone));
+                    dialIntent.putExtra("sosflag", "secure");
+                    startActivity(dialIntent);
+                }
+            }
+        }
     }
 
     @Override
@@ -178,6 +209,9 @@ public class Home extends Activity implements OnBussinessEventListener {
     protected void onDestroy() {
         if(callLogObserver != null){
             getContentResolver().unregisterContentObserver(callLogObserver);
+        }
+        if(noPauseReceiver != null){
+            unregisterReceiver(noPauseReceiver);
         }
         stopSOSProcess();
         /** --START--  school card start  --START-- */

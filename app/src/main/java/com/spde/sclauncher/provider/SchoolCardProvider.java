@@ -5,8 +5,13 @@ import android.content.ContentUris;
 import android.content.ContentValues;
 import android.content.UriMatcher;
 import android.database.Cursor;
+import android.database.MatrixCursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.net.Uri;
+
+
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class SchoolCardProvider extends ContentProvider {
     private DatabaseHelper databaseHelper;
@@ -17,6 +22,8 @@ public class SchoolCardProvider extends ContentProvider {
     private static final int SERVERSMS = 4;
     private static final int WHITELIST = 5;
     private static final int PROFILE = 6;
+    private static final int LOGIC_SMS_ALLOWED = 7;
+    private static final int LOGIC_FA_INSTRUCT = 8;
     static {
         MATCHER.addURI(SCDB.AUTHORITY, "contacts", CONTACTS);
         MATCHER.addURI(SCDB.AUTHORITY, "contact/#", CONTACT);
@@ -24,8 +31,14 @@ public class SchoolCardProvider extends ContentProvider {
         MATCHER.addURI(SCDB.AUTHORITY, "serversms", SERVERSMS);
         MATCHER.addURI(SCDB.AUTHORITY, "whitelist", WHITELIST);
         MATCHER.addURI(SCDB.AUTHORITY, "profile", PROFILE);
+
+        /***/
+        MATCHER.addURI(SCDB.AUTHORITY, "sms_allowed", LOGIC_SMS_ALLOWED);
+        MATCHER.addURI(SCDB.AUTHORITY, "fa_instruct", LOGIC_FA_INSTRUCT);
     }
 
+    Pattern phonePattern = Pattern.compile("phone\\s{0,1}=\\s{0,1}'(\\d{1,20})'");
+    Pattern cmdPattern = Pattern.compile("cmd\\s{0,1}=\\s{0,1}'(\\S{1,20})'");
     @Override
     public boolean onCreate() {
         databaseHelper = new DatabaseHelper(getContext());
@@ -75,9 +88,96 @@ public class SchoolCardProvider extends ContentProvider {
                 return db.query(SCDB.TABLE_PROFILE, projection, selection, selectionArgs,
                         null, null, sortOrder);
             }
+            case LOGIC_SMS_ALLOWED:{
+                return smsAllowedInWhiteList(db, selection);
+            }
+            case LOGIC_FA_INSTRUCT:{
+                return isFAInstruction(db, selection);
+            }
             default:
                 throw new IllegalArgumentException("query unknown Uri:" + uri.toString());
         }
+    }
+
+    private Cursor isFAInstruction(SQLiteDatabase db ,String selection){
+        if(selection == null || selection.trim().isEmpty()){
+            throw new IllegalArgumentException("query unknown selection item:" + selection);
+        }
+        String phone,cmd;
+        Matcher matcherPhone = phonePattern.matcher(selection.trim());
+        if (matcherPhone.find()) {
+            phone = matcherPhone.group(1);
+        }else{
+            throw new IllegalArgumentException("query unknown selection item:" + selection);
+        }
+
+        Matcher matcherCmd = cmdPattern.matcher(selection.trim());
+        if (matcherCmd.find()) {
+            cmd = matcherCmd.group(1);
+        }else{
+            throw new IllegalArgumentException("query unknown selection item:" + selection);
+        }
+
+        if(phone == null || phone.isEmpty() || cmd == null || cmd.isEmpty()){
+            throw new IllegalArgumentException("query unknown selection item:" + selection);
+        }
+        String[] columns = new String[] {"phone", "cmd"};
+        MatrixCursor matrixCursor = new MatrixCursor(columns);
+        if(cmd.equalsIgnoreCase("DLCX") || cmd.equalsIgnoreCase("QQSFE")){
+            Cursor cursor = db.query(SCDB.TABLE_CONTACTS, null,
+                    SCDB.Contacts.PHONE + "='" + phone + "'", null,
+                    null, null, null);
+            if(cursor.moveToNext()){
+                String row[] = new String[]{phone, cmd};
+                matrixCursor.addRow(row);
+            }
+            cursor.close();
+        }
+        return matrixCursor;
+    }
+
+    private Cursor smsAllowedInWhiteList(SQLiteDatabase db ,String selection){
+        if(selection == null || !selection.startsWith(SCDB.WhiteList.PHONE)){
+            throw new IllegalArgumentException("query unknown selection item:" + selection);
+        }
+        String phone;
+        Matcher matcher = phonePattern.matcher(selection.trim());
+        if (matcher.find()) {
+            phone = matcher.group(1);
+        }else{
+            throw new IllegalArgumentException("query unknown selection item:" + selection);
+        }
+        if(phone == null || phone.isEmpty()) {
+            throw new IllegalArgumentException("query unknown selection item:" + selection);
+        }
+        boolean found = false;
+        boolean notSet = false;
+        Cursor cursor = db.query(SCDB.TABLE_WHTTELIST, null, null, null,
+                null, null, null);
+        if(cursor.getCount() > 0){
+            while(cursor.moveToNext()){
+                String rphone = cursor.getString(cursor.getColumnIndex(SCDB.WhiteList.PHONE));
+                if(phone.equals(rphone)){
+                    found = true;
+                    break;
+                }
+            }
+        }else{
+            notSet = true;
+            //not white list set ,so any phone number can pass in
+        }
+        cursor.close();
+
+        String[] columns = new String[] {"phone", "status"};
+        MatrixCursor matrixCursor = new MatrixCursor(columns);
+        if(found){
+            String row[] = new String[]{phone, "in"};
+            matrixCursor.addRow(row);
+        }else if(notSet){
+            String row[] = new String[]{phone, "not_set"};
+            matrixCursor.addRow(row);
+        }
+        return matrixCursor;
     }
 
     @Override
@@ -98,6 +198,12 @@ public class SchoolCardProvider extends ContentProvider {
             }
             case PROFILE:{
                 return "vnd.android.cursor.item/profile";
+            }
+            case LOGIC_SMS_ALLOWED:{
+                return "vnd.android.cursor.item/sms_allowed";
+            }
+            case LOGIC_FA_INSTRUCT:{
+                return "vnd.android.cursor.item/fa_instruct";
             }
             default:
                 throw new IllegalArgumentException("getType unknown Uri:" + uri.toString());

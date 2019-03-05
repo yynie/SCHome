@@ -85,6 +85,7 @@ public class ProfileModeDataSource extends AbstractDataSource{
         if(cursor.moveToNext()){
             updateId = cursor.getInt(cursor.getColumnIndex("_id"));
         }
+        cursor.close();
         ContentValues values = new ContentValues();
         values.put(SCDB.Profile.RING, isRing?1:0);
         values.put(SCDB.Profile.CALL_IN_FORBID, isIncomingForbidden?1:0);

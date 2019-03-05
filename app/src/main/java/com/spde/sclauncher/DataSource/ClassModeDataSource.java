@@ -151,6 +151,7 @@ public class ClassModeDataSource extends AbstractDataSource {
                     ClassItem item = new ClassItem(startmin, endmin, weeks, id, (onoff == 1), (sosin == 1), (sosout == 1));
                     classItemList.add(item);
                 }
+                cursor.close();
             }
             List<ClassItem> retlist = new ArrayList<ClassItem>();
             for(ClassItem item:classItemList){

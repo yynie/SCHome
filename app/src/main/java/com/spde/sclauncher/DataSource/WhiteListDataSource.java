@@ -125,6 +125,7 @@ public class WhiteListDataSource extends AbstractDataSource {
                     String weeks = cursor.getString(cursor.getColumnIndex(SCDB.WhiteList.DAY));
                     itemList.add(new WhiteListItem(phone, callInLimit, weeks, start, end));
                 }
+                cursor.close();
             }
             List<WhiteListItem> retlist = new ArrayList<WhiteListItem>();
             WhiteListItem master = null;

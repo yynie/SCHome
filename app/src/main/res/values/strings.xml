@@ -5,4 +5,5 @@
     <string name="out_call_forbid">Outgoing call forbidden</string>
     <string name="sos_call_forbid_classmode">SOS call forbidden in class</string>
     <string name="call_forbid_classmode">Call forbidden in class</string>
+    <string name="dlcx_reply" translatable="false">您好, 智能学生卡的当前电量为 %1$s</string>
 </resources>

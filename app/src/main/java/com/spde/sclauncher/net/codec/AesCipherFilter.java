@@ -130,13 +130,16 @@ public class AesCipherFilter extends ProtocolFilter {
                     encrypt = plain;
                 }
                 if(encrypt != null){
+                    if(StringUtils.isNotBlank(MTAG)){
                     encrypt += "#" + MTAG + "#" + VER;
+                    }
                     encrypt += BODY_END;
                     IoBuffer ioBuffer = new SimpleIoBuffer();
                     ioBuffer.allocate(encrypt.length());
                     ioBuffer.putString(encrypt, charset.newEncoder());
                     ioBuffer.flip();
                     out.write(ioBuffer);
+                    log.d(encrypt);
                 }
             }else{
                 throw new Exception("String expected but " + message.getClass().getSimpleName() + " input!");
