@@ -134,7 +134,7 @@ public class Home extends Activity implements OnBussinessEventListener {
         });
 
         IntentFilter noPauseIF = new IntentFilter();
-        noPauseIF.addAction("com.sped.sclauncher.sms_instruction");
+        noPauseIF.addAction("com.spde.sclauncher.sms_instruction");
         noPauseReceiver = new NoPauseReceiver();
         registerReceiver(noPauseReceiver, noPauseIF);
 
@@ -167,8 +167,8 @@ public class Home extends Activity implements OnBussinessEventListener {
 
         @Override
         public void onReceive(Context context, Intent intent) {
-            if(intent.getAction().equals("com.sped.sclauncher.sms_instruction")){
-                //adb shell am broadcast -a com.sped.sclauncher.sms_instruction --es phone "18900000000" --es cmd "dlcx"
+            if(intent.getAction().equals("com.spde.sclauncher.sms_instruction")){
+                //adb shell am broadcast -a com.spde.sclauncher.sms_instruction --es phone "18900000000" --es cmd "dlcx"
                 String phone = intent.getStringExtra("phone");
                 String cmd = intent.getStringExtra("cmd");
                 log.i("phone="+phone+",cmd="+cmd);
