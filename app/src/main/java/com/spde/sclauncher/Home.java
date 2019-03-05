@@ -26,10 +26,16 @@ import com.spde.sclauncher.DataSource.BatteryDataSource;
 import com.spde.sclauncher.DataSource.ClassModeDataSource;
 import com.spde.sclauncher.DataSource.FixedNumberDataSource;
 import com.spde.sclauncher.DataSource.GpsFenceDataSource;
+import com.spde.sclauncher.DataSource.IDataSourceCallBack;
 import com.spde.sclauncher.DataSource.LocationDataSource;
+import com.spde.sclauncher.DataSource.NmeaCallback;
 import com.spde.sclauncher.DataSource.ProfileModeDataSource;
 import com.spde.sclauncher.DataSource.WhiteListDataSource;
+import com.spde.sclauncher.DataSource.WifiCallback;
 import com.spde.sclauncher.net.LocalDevice;
+
+import com.spde.sclauncher.net.message.GZ.ReportLocationInfo;
+
 import com.spde.sclauncher.provider.SCDB;
 import com.spde.sclauncher.schcard.Business;
 import com.spde.sclauncher.schcard.OnBussinessEventListener;
@@ -53,10 +59,19 @@ public class Home extends Activity implements OnBussinessEventListener {
     private TextView status;
     private Business scBusiness;
     private CallLogObserver callLogObserver;
-
+    private AtomicReference<SOSAsyncTask> sosAsyncTaskRef = new AtomicReference<SOSAsyncTask>();
     private Handler mHandler = new Handler(new Handler.Callback() {
         @Override
         public boolean handleMessage(Message msg) {
+            if(msg.what == SOSAsyncTask.MSG_SOS_BY_USER_GO){
+                String sos = (String) msg.obj;
+                log.i("MSG_SOS_BY_USER_GO");
+                Intent intent =  new Intent(Intent.ACTION_CALL,Uri.parse("tel:" + sos));
+                intent.putExtra("sosflag", "byuser");
+                startActivity(intent);
+                sosAsyncTaskRef.set(null);
+                return true;
+            }
             Boolean login = (Boolean) msg.obj;
             status.setText("Login = " + login);
             return false;
@@ -64,7 +79,6 @@ public class Home extends Activity implements OnBussinessEventListener {
     });
 
     private void test(){
-        dialSOSByUser();
     }
 
     @Override
@@ -165,6 +179,7 @@ public class Home extends Activity implements OnBussinessEventListener {
         if(callLogObserver != null){
             getContentResolver().unregisterContentObserver(callLogObserver);
         }
+        stopSOSProcess();
         /** --START--  school card start  --START-- */
         scBusiness.onDestroy();
         releaseDataSources();
@@ -273,6 +288,12 @@ public class Home extends Activity implements OnBussinessEventListener {
         }
     }
 
+    private void removeAllServerSms(){
+        Uri uri = Uri.parse("content://" + SCDB.AUTHORITY + "/serversms");
+        int delnum = getContentResolver().delete(uri, null, null);
+        log.i("removeAllServerSms  delnum=" + delnum);
+    }
+
     private void showToast(String info){
         Toast toast = Toast.makeText(this, null,Toast.LENGTH_LONG);
         LayoutInflater inflater = LayoutInflater.from(this);
@@ -300,13 +321,99 @@ public class Home extends Activity implements OnBussinessEventListener {
     }
 
     private void dialSOSByUser(){
-        String sos = FixedNumberDataSource.getInstance().getKeyNumber(0);
-        String rejectReason = canDialingACall(sos, true);
-        if(rejectReason != null){
-            showToast(rejectReason);
+        SOSAsyncTask sosTask = new SOSAsyncTask(scBusiness, mHandler);
+        if(sosAsyncTaskRef.compareAndSet(null, sosTask)) {
+            String sos = FixedNumberDataSource.getInstance().getKeyNumber(0);
+            String rejectReason = canDialingACall(sos, true);
+            if (rejectReason != null) {
+                showToast(rejectReason);
+                sosAsyncTaskRef.set(null);
+                log.i("dialSOSByUser reject:" + rejectReason);
+                return;
+            }
+            LocationFuture locFutrue = buildLocationReport();
+            sosTask.execute(sos, locFutrue, Long.valueOf(80 * 1000L));
         }else{
-            //TODO: report and dial
+            log.e("dialSOSByUser SOSAsyncTask already run");
         }
+    }
+
+    private void stopSOSProcess(){
+        SOSAsyncTask sosTask = sosAsyncTaskRef.getAndSet(null);
+        if(sosTask != null){
+            sosTask.stop();
+        }
+    }
+
+    private LocationFuture buildLocationReport(){
+        WakeLock.getInstance().acquire();
+        final LocationFuture future = new LocationFuture();
+        IDataSourceCallBack icb = new IDataSourceCallBack() {
+            Exception wifiExp = null, gpsExp = null;
+            boolean done = false, wifiQuit = false, gpsQuit = false;
+            @Override
+            public void onComplete(IDataSourceCallBack wrapped, Object result, Exception exception) {
+                log.d(wrapped.getClass().getSimpleName() + " onComplete result=" + result + " ,exception=" + exception);
+                if(done){
+                    LocationDataSource.getInstance().quit(wrapped);
+                    if(wrapped instanceof WifiCallback){
+                        log.i("onComplete done, wifi quit");
+                        wifiQuit = true;
+                    }else{
+                        log.i("onComplete done, gps quit");
+                        gpsQuit = true;
+                    }
+                    if(wifiQuit && gpsQuit) {
+                        log.i("onComplete done, release wakelock");
+                        WakeLock.getInstance().release();
+                    }
+                    return;
+                }
+                if (result != null) {
+                    ReportLocationInfo report = new ReportLocationInfo(null);
+                    if (wrapped instanceof WifiCallback) {
+                        List<String> wifiList = new ArrayList<String>();
+                        List<LocationDataSource.WifiLocation> list = (List<LocationDataSource.WifiLocation>) result;
+                        int pickNum = 5; //最多5个
+                        for (LocationDataSource.WifiLocation loc : list) {
+                            String wifi = loc.getSsid() + "!" + loc.getBssid() + "!" + loc.getmRssi();
+                            wifiList.add(wifi);
+                            pickNum--;
+                            if (pickNum <= 0)
+                                break;
+                        }
+                        report.setWifiList(wifiList);
+                    } else if (wrapped instanceof NmeaCallback) {
+                        report.setNmea((String) result);
+                    }
+                    LocationDataSource.LbsLocation lbs = LocationDataSource.getInstance().getLbsLocation();
+                    String lbsString = (lbs == null) ? null : (lbs.getMcc() + "!" + lbs.getMnc() + "!" + lbs.getLac() + "!" + lbs.getCid() + "!" + lbs.getDb());
+                    report.setLbs(lbsString);
+                    future.setReport(report);
+                    done = true;
+                }else if(exception != null){
+                    if (wrapped instanceof WifiCallback) {
+                        wifiExp = exception;
+                    }else if (wrapped instanceof NmeaCallback) {
+                        gpsExp = exception;
+                    }
+                }
+                if(wifiExp != null && gpsExp != null){
+                    ReportLocationInfo reportLBSOnly = new ReportLocationInfo(null);
+                    LocationDataSource.LbsLocation lbs = LocationDataSource.getInstance().getLbsLocation();
+                    String lbsString = (lbs == null) ? null : (lbs.getMcc() + "!" + lbs.getMnc() + "!" + lbs.getLac() + "!" + lbs.getCid() + "!" + lbs.getDb());
+                    reportLBSOnly.setLbs(lbsString);
+                    future.setReport(reportLBSOnly);
+                    done = true;
+                    log.e("wifi and gps all failed!");
+                    WakeLock.getInstance().release();
+                }
+            }
+        };
+        LocationDataSource.getInstance().openGps();
+        LocationDataSource.getInstance().requestWifiPeriodicUpdate(3, 30, icb);
+        LocationDataSource.getInstance().requestNMEAPeriodicUpdate(40, icb);
+        return future;
     }
 
     private void dialSOS(){
@@ -350,6 +457,17 @@ public class Home extends Activity implements OnBussinessEventListener {
     public void onLoginStatusChanged(boolean loginOk) {
         log.i("onLoginStatusChanged:" + loginOk);
         mHandler.obtainMessage(1, loginOk).sendToTarget();
+    }
+
+    @Override
+    public void onUserRegiterRequired() {
+        //new user, clear all user data
+        FixedNumberDataSource.getInstance().restore();
+        ClassModeDataSource.getInstance().restore();
+        WhiteListDataSource.getInstance().restore();
+        ProfileModeDataSource.getInstance().restore();
+        GpsFenceDataSource.getInstance().restore();
+        removeAllServerSms();
     }
 
     @Override

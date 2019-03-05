@@ -10,6 +10,11 @@ public class DefaultNetCommListener implements INetCommListener {
     }
 
     @Override
+    public void onUserRegiterRequired() {
+
+    }
+
+    @Override
     public void onSmsSendRequest(String tag, String text, String toPort) {
 
     }

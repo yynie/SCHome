@@ -134,7 +134,7 @@ public class LocationDataSource extends AbstractDataSource {
         public void onNmeaReceived(long timestamp, String nmea) {
             if(nmea.trim().startsWith("$GPGGA,") || nmea.trim().startsWith("$GNGGA,") ||
                     nmea.trim().startsWith("$BDGGA,")){
-                log.i("onNmeaReceived:" + nmea);
+                log.d("onNmeaReceived:" + nmea);
                 String[] ndatas =  nmea.split(",");
                 if(ndatas.length > 8){
                     String latstring = ndatas[2].trim();  //格式为ddmm.mmmm
@@ -208,8 +208,13 @@ public class LocationDataSource extends AbstractDataSource {
         nmeaHandler.start(callback);
     }
 
-    public void quitNMEAPeriodicUpdate(NmeaCallback callBack){
-        nmeaHandler.removeNmeaCallback(callBack);
+    public void quit(IDataSourceCallBack wrapped){
+        if(wrapped instanceof NmeaCallback){
+            nmeaHandler.removeNmeaCallback((NmeaCallback) wrapped);
+        }
+        if(wrapped instanceof WifiCallback){
+            wifiScanner.removeWifiCallback((WifiCallback) wrapped);
+        }
     }
 
     public void requestWifiLocations(int min, int timeOutSeconds, IDataSourceCallBack callBack){
@@ -293,7 +298,7 @@ public class LocationDataSource extends AbstractDataSource {
     private class NMEAHandler extends Handler{
         private final int TRY_NMEA_DATA = 101;
         private final int NMEA_DATA_READY = 102;
-        private final int REMOVE_CALLBACK = 103;
+        private final int REMOVE_NMEA_CALLBACK = 103;
         private final List<NmeaCallback> callbackList = new CopyOnWriteArrayList<NmeaCallback>();
 
         void start(NmeaCallback callback){
@@ -310,7 +315,7 @@ public class LocationDataSource extends AbstractDataSource {
         }
 
         void removeNmeaCallback(NmeaCallback callback){
-            obtainMessage(REMOVE_CALLBACK, callback).sendToTarget();
+            obtainMessage(REMOVE_NMEA_CALLBACK, callback).sendToTarget();
         }
 
         void notifyReady(String nmea){
@@ -382,8 +387,8 @@ public class LocationDataSource extends AbstractDataSource {
                     }
                     break;
                 }
-                case REMOVE_CALLBACK:{
-                    log.i("REMOVE_CALLBACK for quit");
+                case REMOVE_NMEA_CALLBACK:{
+                    log.i("REMOVE_NMEA_CALLBACK for quit");
                     NmeaCallback callback = (NmeaCallback) message.obj;
                     callbackList.remove(callback);
                     break;
@@ -395,6 +400,7 @@ public class LocationDataSource extends AbstractDataSource {
     private class WifiScanner extends Handler{
         private final int START_SCAN = 111;
         private final int TRY_ACCESSPOINT = 112;
+        private final int REMOVE_WIFI_CALLBACK = 113;
         private int mRetry = 0;
         private final List<WifiCallback> callbackList = new CopyOnWriteArrayList<WifiCallback>();
         private BroadcastReceiver receiver;
@@ -430,6 +436,10 @@ public class LocationDataSource extends AbstractDataSource {
                 }
             };
             LocationDataSource.this.getContext().registerReceiver(receiver, filter);
+        }
+
+        void removeWifiCallback(WifiCallback callback){
+            obtainMessage(REMOVE_WIFI_CALLBACK, callback).sendToTarget();
         }
 
         void stop() {
@@ -502,7 +512,7 @@ public class LocationDataSource extends AbstractDataSource {
                 final List<ScanResult> results = wifiManager.getScanResults();
                 if (results != null) {
                     for (ScanResult result : results) {
-                        log.i("updateApInfo SSID=" + result.SSID);
+                        log.d("updateApInfo SSID=" + result.SSID);
                         // Ignore hidden and ad-hoc networks.
                         if (result.SSID == null || result.SSID.length() == 0 ||
                                 result.capabilities.contains("[IBSS]")) {
@@ -555,6 +565,12 @@ public class LocationDataSource extends AbstractDataSource {
                     }else{
                         stop(); //超时后停
                     }
+                    break;
+                }
+                case REMOVE_WIFI_CALLBACK:{
+                    log.i("REMOVE_WIFI_CALLBACK for quit");
+                    WifiCallback callback = (WifiCallback) message.obj;
+                    callbackList.remove(callback);
                     break;
                 }
             }

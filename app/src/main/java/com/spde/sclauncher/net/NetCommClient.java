@@ -22,11 +22,6 @@ import com.sonf.future.ConnectFuture;
 import com.sonf.nio.NioChannelController;
 import com.sonf.nio.NioSession;
 import com.sonf.nio.NioSocketConfig;
-import com.spde.sclauncher.DataSource.ClassModeDataSource;
-import com.spde.sclauncher.DataSource.FixedNumberDataSource;
-import com.spde.sclauncher.DataSource.GpsFenceDataSource;
-import com.spde.sclauncher.DataSource.ProfileModeDataSource;
-import com.spde.sclauncher.DataSource.WhiteListDataSource;
 import com.spde.sclauncher.net.codec.AesCipherFilter;
 import com.spde.sclauncher.net.codec.SCProtocolCodecFilter;
 import com.spde.sclauncher.net.message.GZ.*;
@@ -48,12 +43,14 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
@@ -101,6 +98,7 @@ public class NetCommClient {
     private NetReceiver netReceiver;
     private ScheduleTaskCallback scheduleTaskCallback = new ScheduleTaskCallback();
     private AtomicReference<IOSession> sessionRef = new AtomicReference<IOSession>();
+    private List<LoginFuture> loginFutureList = new ArrayList<LoginFuture>();
     private Worker worker = new Worker();  //UI 线程工作的Handler
     private Map<String , WrappedMessage> waitRspMap = new ConcurrentHashMap<String , WrappedMessage>();
     private Queue<WrappedMessage> waitRspQueue = new ConcurrentLinkedQueue<WrappedMessage>();
@@ -271,11 +269,12 @@ public class NetCommClient {
             waitRspMap.clear();
             waitRspQueue.clear();
             writeFutureQueue.clear();
+            if(serialRequesQueue != null) serialRequesQueue.clear();
             sessionRef.set(null);
             listenerList.clear();
             loginScheduled.set(false);
             taskScheduler = null;
-
+            loginFutureList.clear();
             //销毁controller
             if (controller != null) {
                 controller.dispose();
@@ -364,6 +363,7 @@ public class NetCommClient {
                         sessionRef.set(null); //连接失败 清掉
                         //下一个心跳时间重试
                         scheduleNextLogin();
+                        notifyLoginFutures(e);
                         WakeLock.getInstance().release();
                     }
                 }
@@ -413,11 +413,18 @@ public class NetCommClient {
         for(INetCommListener l:listenerList){
             l.onLoginStatusChanged(result);
         }
+        notifyLoginFutures(result);
     }
 
     private void notifySmsRequest(String tag, String text, String port){
         for(INetCommListener l:listenerList){
             l.onSmsSendRequest(tag, text, port);
+        }
+    }
+
+    private void notifyUserRegiterRequired(){
+        for(INetCommListener l:listenerList){
+            l.onUserRegiterRequired();
         }
     }
 
@@ -458,6 +465,27 @@ public class NetCommClient {
         }
         loginOk = false;
         notifyLogin(false);
+    }
+
+    public LoginFuture requestLoginByUser(){
+        synchronized (loginFutureList) {
+            LoginFuture rsp = new LoginFuture();
+            if(isLogin()){
+                rsp.setResult(true);
+                return rsp;
+            }
+            loginFutureList.add(rsp);
+            if (!isSessionExist() && isNetworkAvailable()) {
+                startUpSession(); //网络可用 启动会话 否则等NetCommClient自动启动
+            }
+            return rsp;
+        }
+    }
+
+    public boolean removeLoginFuture(LoginFuture loginFuture){
+        synchronized (loginFutureList) {
+            return loginFutureList.remove(loginFuture);
+        }
     }
 
     public void forceRelogin(boolean immediately){
@@ -549,10 +577,11 @@ public class NetCommClient {
                             remove(rspF);
                             added = false;
                             log.i("SerialRequesQueue send now failed");
+                        }else {
+                            log.i("SerialRequesQueue send now ok");
+                            rspF.setWriteFuture(writeFuture);
+                            ((SerialResponseFuture) rspF).setSerialListener(this);
                         }
-                        log.i("SerialRequesQueue send now ok");
-                        rspF.setWriteFuture(writeFuture);
-                        ((SerialResponseFuture)rspF).setSerialListener(this);
                     }
                 }else{
                     added =  super.add(rspF);
@@ -610,11 +639,26 @@ public class NetCommClient {
         return send(response, null);
     }
 
+    private void notifyLoginFutures(Object value){
+        synchronized (loginFutureList) {
+            for (LoginFuture f : loginFutureList) {
+                if (value instanceof Throwable) {
+                    f.setException((Throwable) value);
+                } else {
+                    f.setResult((Boolean) value);
+                }
+            }
+
+            loginFutureList.clear();
+        }
+    }
+
     private void dealLoginResponse(DeviceLoginRsp resp){
         if(resp == null){
             log.i("dealLoginResponse: timeout");
             closeSession(true);
             scheduleNextLogin();
+            notifyLoginFutures(new TimeoutException("LogIn Timout"));
             return;
         }
         if(resp.getStatus() == 0 && StringUtils.equals(resp.getSmsPort(), "0") && !resp.isNeedSms()){
@@ -628,7 +672,7 @@ public class NetCommClient {
             log.i("dealLoginResponse: need sms register");
             String port = resp.getSmsPort().trim();
             closeSession(true);
-            clearUserDatas();
+            notifyUserRegiterRequired();
             needRegister = true;
             if(smsTryCount < 10){
                 String text = LocalDevice.getInstance().getImei() + "@" + LocalDevice.getInstance().getIccid();
@@ -638,24 +682,19 @@ public class NetCommClient {
                 frozen = true;
                 savePreference(PREF_KEY_FROZEN_FLAG, frozen);
             }
+            notifyLoginFutures(loginOk);
         }else if(resp.getStatus() == 1){
             log.i("dealLoginResponse: status = 1, failed, try again at heartbeat delay");
             closeSession(true);
             scheduleNextLogin();
+            notifyLoginFutures(new Exception("LogIn failed with status == 1"));
         }else if(resp.getStatus() == 2){
             log.i("dealLoginResponse: status = 2, failed");
             closeSession(true);
             frozen = true;
             savePreference(PREF_KEY_FROZEN_FLAG, frozen);
+            notifyLoginFutures(new Exception("LogIn failed with status == 2"));
         }
-    }
-
-    private void clearUserDatas(){
-        FixedNumberDataSource.getInstance().restore();
-        ClassModeDataSource.getInstance().restore();
-        WhiteListDataSource.getInstance().restore();
-        ProfileModeDataSource.getInstance().restore();
-        GpsFenceDataSource.getInstance().restore();
     }
 
     private void receivedResponse(ISCMessage resp){

@@ -31,6 +31,7 @@ import com.spde.sclauncher.DataSource.WifiCallback;
 import com.spde.sclauncher.DefaultNetCommListener;
 
 import com.spde.sclauncher.net.LocalDevice;
+import com.spde.sclauncher.net.LoginFuture;
 import com.spde.sclauncher.net.NetCommClient;
 import com.spde.sclauncher.net.ResponseFuture;
 import com.spde.sclauncher.net.message.GZ.*;
@@ -88,33 +89,36 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
     private ScheduleTaskCallback scheduleTaskCallback = new ScheduleTaskCallback();
 
     public Business(Context context) {
-        mContext = context;
+        synchronized (Business.class) {
+            mContext = context;
 
-        //初始化 计划任务
-        taskScheduler = new TaskScheduler(mContext);
+            //初始化 计划任务
+            taskScheduler = new TaskScheduler(mContext);
 
-        commClient = new NetCommClient(context, taskScheduler);
-        SharedPreferences prefs = mContext.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
-        String checkString = prefs.getString(PREF_KEY_CONFIG_CHECK_STR, "");
+            commClient = new NetCommClient(context, taskScheduler);
 
-        if(StringUtils.isNotBlank(checkString)){
-            String[] ss = checkString.split("#");
-            for(String s:ss){
-                if(StringUtils.isNotBlank(s)) {
-                    ConfigCheck cc = new ConfigCheck(s);
-                    configChecks.put(cc.flag, cc);
+            SharedPreferences prefs = mContext.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+            String checkString = prefs.getString(PREF_KEY_CONFIG_CHECK_STR, "");
+
+            if (StringUtils.isNotBlank(checkString)) {
+                String[] ss = checkString.split("#");
+                for (String s : ss) {
+                    if (StringUtils.isNotBlank(s)) {
+                        ConfigCheck cc = new ConfigCheck(s);
+                        configChecks.put(cc.flag, cc);
+                    }
                 }
             }
+
+            //监听sim卡,sim ready时读取IMEI和ICCID，启动 NetCommClient
+            IntentFilter intentFilter = new IntentFilter();
+            intentFilter.addAction(ACTION_SIM_STATE_CHANGED);
+            intentFilter.addAction(Intent.ACTION_BATTERY_LOW);
+            intentFilter.addAction(Intent.ACTION_SHUTDOWN);
+            mContext.registerReceiver(broadcastReceiver, intentFilter);
+
+            commClient.addListener(this);
         }
-
-        //监听sim卡,sim ready时读取IMEI和ICCID，启动 NetCommClient
-        IntentFilter intentFilter = new IntentFilter();
-        intentFilter.addAction(ACTION_SIM_STATE_CHANGED);
-        intentFilter.addAction(Intent.ACTION_BATTERY_LOW);
-        intentFilter.addAction(Intent.ACTION_SHUTDOWN);
-        mContext.registerReceiver(broadcastReceiver, intentFilter);
-
-        commClient.addListener(this);
     }
 
     public void setOnEventListener(OnBussinessEventListener onEventListener) {
@@ -122,19 +126,31 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
     }
 
     public void onDestroy(){
-        commClient.destroy();
-        commClient = null;
-        taskScheduler.release();
-        taskScheduler = null;
-        onEventListener = null;
-        mContext.unregisterReceiver(broadcastReceiver);
-        reportRequestQueue.clear();
-        businessWorker.pause();
+        synchronized (Business.class) {
+            if(commClient != null) {
+                commClient.destroy();
+                commClient = null;
+            }
+            if(taskScheduler != null) {
+                taskScheduler.release();
+                taskScheduler = null;
+            }
+            onEventListener = null;
+            mContext.unregisterReceiver(broadcastReceiver);
+            reportRequestQueue.clear();
+            businessWorker.pause();
+        }
     }
 
     private void notifyLogin(boolean result){
         if(onEventListener != null){
             onEventListener.onLoginStatusChanged(result);
+        }
+    }
+
+    private void notifyUserRegiterRequired(){
+        if(onEventListener != null){
+            onEventListener.onUserRegiterRequired();
         }
     }
 
@@ -168,6 +184,11 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
         }else{
             removeScheduledLocation();
         }
+    }
+
+    @Override
+    public void onUserRegiterRequired() {
+        notifyUserRegiterRequired();
     }
 
     @Override
@@ -205,7 +226,7 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
                 boolean sent = false;
                 @Override
                 public void onComplete(IDataSourceCallBack wrapped, Object result, Exception exception) {
-                    log.i(wrapped.getClass().getSimpleName() + " onComplete result=" + result + " ,exception=" + exception);
+                    log.d(wrapped.getClass().getSimpleName() + " onComplete result=" + result + " ,exception=" + exception);
                     if(wrapped instanceof WifiCallback){
                         if(sent){
                             log.e("WifiCallback already sent, NEVER be here!!");
@@ -235,7 +256,7 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
                     }else if(wrapped instanceof NmeaCallback){
                         if(sent){
                             log.w("NmeaCallback already sent");
-                            LocationDataSource.getInstance().quitNMEAPeriodicUpdate((NmeaCallback) wrapped);
+                            LocationDataSource.getInstance().quit(wrapped);
                             return;
                         }
                         if (result != null) {
@@ -267,7 +288,7 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
                         String lbsString = (lbs == null) ? null : (lbs.getMcc() + "!" + lbs.getMnc() + "!" + lbs.getLac() + "!" + lbs.getCid() + "!" + lbs.getDb());
                         rsp.setLbs(lbsString);
                         rsp.reGenHeaderTime();
-                        log.i("body:" + rsp.toProtocolBody());
+                        log.d("body:" + rsp.toProtocolBody());
                         IWriteFuture future = commClient.sendResponse(rsp);
                         if(future != null) {
                             future.setListener(new IoFutureListener<IWriteFuture>() {
@@ -664,8 +685,21 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
         }
     }
 
+    /** 当前是否已登录(在线) */
     public boolean isLogin(){
         return commClient.isLogin();
+    }
+
+    /** 用户主动拨打SOS时 如未登录服务器 则立即登录 */
+    public LoginFuture requestLoginByUser(){
+        return commClient.requestLoginByUser();
+    }
+
+    /** 用户主动发起登录 如不再等待结果，需主动释放futrue
+     *  否则。。。也不会怎么样 多一个object晚点释放而已
+     * */
+    public boolean removeLoginFuture(LoginFuture loginFuture){
+        return commClient.removeLoginFuture(loginFuture);
     }
 
     /** 上报事件*/

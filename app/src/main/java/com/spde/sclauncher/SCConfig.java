@@ -17,7 +17,7 @@ public class SCConfig {
     /* If cloud server is really really poor, set SERIAL_REQ_LIMIT true.
      * No guarantee for this feature!!! Never set this flag true!!!
      *  */
-    public static boolean SERIAL_REQ_LIMIT = false;
+    public static boolean SERIAL_REQ_LIMIT = true;
 
     /* If u want use wifi, set  this flag true to avoid wifi closed by program  */
     public static boolean USE_WIFI_NETWORK = false; 
