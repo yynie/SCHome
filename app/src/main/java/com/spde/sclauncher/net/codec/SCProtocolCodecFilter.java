@@ -43,6 +43,9 @@ public class SCProtocolCodecFilter extends ProtocolFilter {
         this.headerFieldNumber = 0;
         Field[] fields = headerType.getDeclaredFields();
         for (Field f : fields) {
+            if(f.isSynthetic()){  //Android studio 调试环境在高版本api上会向类中添加成员变量
+                continue;
+            }
             if(f.getName().startsWith("$")){
                 this.headerFieldNumber ++;
             }
