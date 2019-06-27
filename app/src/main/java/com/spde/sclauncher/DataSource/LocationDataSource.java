@@ -14,6 +14,8 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.os.SystemClock;
+//import android.os.SystemProperties;
+import android.os.SystemProperties;
 import android.provider.Settings;
 import android.telephony.CellIdentityGsm;
 import android.telephony.CellIdentityLte;
@@ -26,6 +28,7 @@ import android.telephony.CellSignalStrengthLte;
 import android.telephony.TelephonyManager;
 import android.telephony.gsm.GsmCellLocation;
 
+import com.android.featureoption.FeatureOption;
 import com.yynie.myutils.Logger;
 import com.yynie.myutils.StringUtils;
 
@@ -39,7 +42,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import static com.spde.sclauncher.SCConfig.USE_WIFI_NETWORK;
 
 public class LocationDataSource extends AbstractDataSource {
-    private static Logger log = Logger.get(LocationDataSource.class, Logger.Level.INFO);
+    private static Logger log = Logger.get(LocationDataSource.class, Logger.Level.DEBUG);
     private static LocationDataSource sInstance;
     private WifiManager wifiManager;
     private WifiScanner wifiScanner;
@@ -103,8 +106,8 @@ public class LocationDataSource extends AbstractDataSource {
     public void openGps(){
         log.i("openGps");
         if(!locManager.isProviderEnabled(LocationManager.GPS_PROVIDER)){
-            log.i("openGps: setLocationProviderEnabled true");
-            Settings.Secure.setLocationProviderEnabled(getContext().getContentResolver(), LocationManager.GPS_PROVIDER, true);//cannot do this without system sign
+            log.d("openGps: setLocationProviderEnabled true");
+            //Settings.Secure.setLocationProviderEnabled(getContext().getContentResolver(), LocationManager.GPS_PROVIDER, true);
         }
         
         if(nmeaListener == null) {
@@ -122,8 +125,18 @@ public class LocationDataSource extends AbstractDataSource {
     public void closeGps(){
         if(nmeaHandler.isStoped()) {
             log.i("closeGps: do close");
-            log.i("closeGps: setLocationProviderEnabled false");
-            Settings.Secure.setLocationProviderEnabled(getContext().getContentResolver(), LocationManager.GPS_PROVIDER, false); //cannot do this without system sign
+            if(nmeaListener != null) {
+                log.i("closeGps remove nmeaListener");
+                locManager.removeNmeaListener(nmeaListener);
+                nmeaListener = null;
+            }
+            if(gpsListener != null) {
+                log.i("closeGps remove gpsListener");
+                locManager.removeUpdates(gpsListener);
+                gpsListener = null;
+            }
+            log.d("closeGps: setLocationProviderEnabled false");
+            //Settings.Secure.setLocationProviderEnabled(getContext().getContentResolver(), LocationManager.GPS_PROVIDER, false);
         }else{
             log.i("closeGps: nmeaHandler is still working, do Not close ");
         }
@@ -134,7 +147,12 @@ public class LocationDataSource extends AbstractDataSource {
         public void onNmeaReceived(long timestamp, String nmea) {
             if(nmea.trim().startsWith("$GPGGA,") || nmea.trim().startsWith("$GNGGA,") ||
                     nmea.trim().startsWith("$BDGGA,")){
-                log.d("onNmeaReceived:" + nmea);
+                log.d("NMEA::" + nmea.trim() + ",timestamp=" + timestamp);
+                long sys = System.currentTimeMillis();
+                if(Math.abs(sys - timestamp) >= (1 * 60 * 60 * 1000)){
+                    log.e("NMEA time error systime=" + sys + ",timestamp=" + timestamp);
+                }
+               
                 String[] ndatas =  nmea.split(",");
                 if(ndatas.length > 8){
                     String latstring = ndatas[2].trim();  //格式为ddmm.mmmm
@@ -149,9 +167,9 @@ public class LocationDataSource extends AbstractDataSource {
                         StringBuilder sb = new StringBuilder();
                         double lat = convertNmeaLatLong(latstring, 2);
                         double lon = convertNmeaLatLong(longstring, 3);
-                        sb.append("0").append(longEW).append(String.format("%.6f", lat)).
-                                append(latNS).append(String.format("%.6f", lon)).
-                                append("T").append(genTimsProtocolString(timestamp));
+                        sb.append("0").append(longEW).append(String.format("%.6f", lon)).
+                                append(latNS).append(String.format("%.6f", lat));
+                                //append("T").append(genTimsProtocolString());
                         if(nmeaHandler != null) {
                             nmeaHandler.notifyReady(sb.toString());
                         }
@@ -161,11 +179,6 @@ public class LocationDataSource extends AbstractDataSource {
         }
     }
 
-    public String genTimsProtocolString(long timestamp){
-        Calendar calendar = Calendar.getInstance();
-        calendar.setTimeInMillis(timestamp);
-        return sdf.format(calendar.getTime());
-    }
 
     private double convertNmeaLatLong(String data, int ddlen){
         double d = Double.parseDouble(data.substring(0,ddlen));
@@ -176,13 +189,13 @@ public class LocationDataSource extends AbstractDataSource {
     private class MyLocationListener implements LocationListener {
         @Override
         public void onLocationChanged(Location location) {
-            log.i("Longitude=" + location.getLongitude() + ",Latitude="
+            log.d("Longitude=" + location.getLongitude() + ",Latitude="
                     + location.getLatitude() + "@" + SystemClock.elapsedRealtime());
         }
 
         @Override
         public void onStatusChanged(String provider, int status, Bundle extras) {
-            log.i("MyLocationListener onStatusChanged: provider=" + provider + ",status=" + status + "@" + SystemClock.elapsedRealtime());
+            log.d("MyLocationListener onStatusChanged: provider=" + provider + ",status=" + status + "@" + SystemClock.elapsedRealtime());
         }
 
         @Override
@@ -240,11 +253,11 @@ public class LocationDataSource extends AbstractDataSource {
             List<CellInfo> allCellList = teleManager.getAllCellInfo();
             if(allCellList == null)
                 return null; // 这种情况一般是无sim卡
-            log.i("allCellList size:" + allCellList.size());
+            log.d("allCellList size:" + allCellList.size());
 
             List<LbsLocation> canlist = new ArrayList<LbsLocation>();
             for (CellInfo cell : allCellList) {
-                log.i("cell of " + cell.getClass().getSimpleName());
+                log.d("cell of " + cell.getClass().getSimpleName());
                 if(cell instanceof CellInfoGsm){
                     CellInfoGsm gsm = (CellInfoGsm)cell;
                     CellIdentityGsm identity = gsm.getCellIdentity();
@@ -254,11 +267,11 @@ public class LocationDataSource extends AbstractDataSource {
                     int cid = identity.getCid();
                     int lac = identity.getLac();
                     int db = strength.getDbm();
-                    log.i("mnc="+mnc+", mcc="+mcc+", cid="+cid+", lac="+lac + ", db=" + db);
+                    log.d("mnc="+mnc+", mcc="+mcc+", cid="+cid+", lac="+lac + ", db=" + db);
                     LbsLocation one = new LbsLocation(mcc, mnc, cid, lac, db);
                     canlist.add(one);
                     if(servedCid == cid && servedLac == lac){
-                        log.i("found current cid=" + cid + ",lac=" + lac);
+                        log.d("found current cid=" + cid + ",lac=" + lac);
                         break;
                     }
                 }else if(cell instanceof CellInfoLte){
@@ -270,11 +283,11 @@ public class LocationDataSource extends AbstractDataSource {
                     int cid = identity.getCi();
                     int tac = identity.getTac();
                     int db = strength.getDbm();
-                    log.i("mnc="+mnc+", mcc="+mcc+", cid="+cid+", pcid="+identity.getPci()+", tac="+ tac + ", db=" + db);
+                    log.d("mnc="+mnc+", mcc="+mcc+", cid="+cid+", pcid="+identity.getPci()+", tac="+ tac + ", db=" + db);
                     LbsLocation one = new LbsLocation(mcc, mnc, cid, tac, db);
                     canlist.add(one);
                     if(servedCid == cid && servedLac == tac){
-                        log.i("found current cid=" + cid + ",tac=" + tac);
+                        log.d("found current cid=" + cid + ",tac=" + tac);
                         break;
                     }
                 }
@@ -341,7 +354,7 @@ public class LocationDataSource extends AbstractDataSource {
                 }
             }
             for(NmeaCallback remove: toRemoveList){
-                log.i("NMEAHandler remove @" + SystemClock.elapsedRealtime() + ",callback=" + remove);
+                log.d("NMEAHandler remove ,callback=" + remove);
                 callbackList.remove(remove);
             }
         }
@@ -359,7 +372,7 @@ public class LocationDataSource extends AbstractDataSource {
                 }
             }
             for(NmeaCallback remove: toRemoveList){
-                log.i("NMEAHandler Expired remove @" + SystemClock.elapsedRealtime() + ",callback=" + remove);
+                log.d("NMEAHandler Expired remove ,callback=" + remove);
                 callbackList.remove(remove);
             }
         }
@@ -368,7 +381,7 @@ public class LocationDataSource extends AbstractDataSource {
         public void handleMessage(Message message) {
             switch (message.what) {
                 case NMEA_DATA_READY:{
-                    log.i("NMEA_DATA_READY");
+                    log.d("NMEA_DATA_READY");
                     String data = (String) message.obj;
                     if(StringUtils.isNotBlank(data)){
                         notifyCallbacks(data);
@@ -388,7 +401,7 @@ public class LocationDataSource extends AbstractDataSource {
                     break;
                 }
                 case REMOVE_NMEA_CALLBACK:{
-                    log.i("REMOVE_NMEA_CALLBACK for quit");
+                    log.d("REMOVE_NMEA_CALLBACK for quit");
                     NmeaCallback callback = (NmeaCallback) message.obj;
                     callbackList.remove(callback);
                     break;
@@ -406,6 +419,14 @@ public class LocationDataSource extends AbstractDataSource {
         private BroadcastReceiver receiver;
         private volatile boolean started = false;
 
+        private boolean wifiForbidden(){
+            if(FeatureOption.PRJ_FEATURE_ANSWER_MACHINE){
+                boolean inAnswerMode =  SystemProperties.getBoolean("sys.sc_answer.marked", false);
+                return (inAnswerMode);
+            }
+            return false;
+        }
+
         void start(WifiCallback callback) {
             if(started){
                 callbackList.add(callback);
@@ -413,6 +434,10 @@ public class LocationDataSource extends AbstractDataSource {
             }
             started = true;
             callbackList.add(callback);
+            if(wifiForbidden()){
+                notifyCallbacks(null, new DataFailedException("WIFI Forbidden"));
+                return;
+            }
             final int wifiState = wifiManager.getWifiState();
             if(wifiState == WifiManager.WIFI_STATE_DISABLED || wifiState == WifiManager.WIFI_STATE_DISABLING){
                 if (!wifiManager.setWifiEnabled(true)) {
@@ -481,7 +506,7 @@ public class LocationDataSource extends AbstractDataSource {
                 }
             }
             for(WifiCallback remove: toRemoveList){
-                log.i("WifiScanner remove @" + SystemClock.elapsedRealtime() + ",callback=" + remove);
+                log.d("WifiScanner remove ,callback=" + remove);
                 callbackList.remove(remove);
             }
         }
@@ -495,7 +520,7 @@ public class LocationDataSource extends AbstractDataSource {
                 }
             }
             for(WifiCallback remove: toRemoveList){
-                log.i("WifiScanner Expired remove @" + SystemClock.elapsedRealtime() + ",callback=" + remove);
+                log.d("WifiScanner Expired remove ,callback=" + remove);
                 callbackList.remove(remove);
             }
         }
@@ -503,7 +528,9 @@ public class LocationDataSource extends AbstractDataSource {
         private void updateApInfo(){
             final int wifiState = wifiManager.getWifiState();
             List<WifiLocation> wifiLocationList = new ArrayList<WifiLocation>();
-
+            if(wifiForbidden()){
+                notifyCallbacks(null, new DataFailedException("WIFI Forbidden"));
+            }
             if(wifiState == WifiManager.WIFI_STATE_ENABLED && !callbackList.isEmpty()){
                 /** Lookup table to more quickly update AccessPoints by only considering objects with the
                  * correct SSID.  Maps SSID -> List of AccessPoints with the given SSID.  */
@@ -540,6 +567,11 @@ public class LocationDataSource extends AbstractDataSource {
         public void handleMessage(Message message) {
             switch (message.what){
                 case START_SCAN:{
+                    if(wifiForbidden()){
+                        notifyCallbacks(null, new DataFailedException("WIFI Forbidden"));
+                        stop();
+                        break;
+                    }
                     if (wifiManager.startScan()) {
                         log.i("WifiScanner start scan");
                         mRetry = 0;
@@ -568,7 +600,7 @@ public class LocationDataSource extends AbstractDataSource {
                     break;
                 }
                 case REMOVE_WIFI_CALLBACK:{
-                    log.i("REMOVE_WIFI_CALLBACK for quit");
+                    log.d("REMOVE_WIFI_CALLBACK for quit");
                     WifiCallback callback = (WifiCallback) message.obj;
                     callbackList.remove(callback);
                     break;

@@ -1,5 +1,6 @@
 package com.spde.sclauncher.net.message.GZ;
 
+import com.spde.sclauncher.SCConfig;
 import com.spde.sclauncher.net.LocalDevice;
 import com.spde.sclauncher.net.NetCommClient;
 import com.spde.sclauncher.net.message.AbstractISCMessage;
@@ -18,6 +19,7 @@ public class DeviceLogin extends AbstractISCMessage<GZProtocolHeader> implements
     private boolean zoneAlarm; //终端是否具备区域报警功能
     private boolean setIncommingPhone;   //终端是否具备设置呼入号码功能
     private String protocolVer = "21"; //终端软件协议版本
+    private String rfid;
 
     public DeviceLogin(){
         super(null);
@@ -26,7 +28,8 @@ public class DeviceLogin extends AbstractISCMessage<GZProtocolHeader> implements
         devType = LocalDevice.getInstance().getDevType();
         zoneAlarm = LocalDevice.getInstance().isZoneAlarm();
         setIncommingPhone = LocalDevice.getInstance().isSetIncommingPhone();
-        protocolVer = NetCommClient.PROTOCOL_VERSION;
+        protocolVer = LocalDevice.PROTOCOL_VERSION;
+        rfid = LocalDevice.getInstance().getRFIDNumber();
     }
 
     public DeviceLogin(ISCHeader header){
@@ -39,6 +42,9 @@ public class DeviceLogin extends AbstractISCMessage<GZProtocolHeader> implements
         sb.append(keyNumber).append(SPLIT_CH).append(sosKey ? 1 : 0).append(SPLIT_CH)
                 .append(devType).append(SPLIT_CH).append(zoneAlarm ? 1 : 0).append(SPLIT_CH)
                 .append(setIncommingPhone ? 1 : 0).append(SPLIT_CH).append(protocolVer);
+        if(SCConfig.APPEND_RFID_IN_LOGIN_PACKET) {
+                sb.append(SPLIT_CH).append(rfid);
+        }
         return sb.toString();
     }
 

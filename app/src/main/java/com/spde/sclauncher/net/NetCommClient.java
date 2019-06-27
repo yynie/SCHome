@@ -10,6 +10,7 @@ import android.net.NetworkInfo;
 import android.os.Handler;
 import android.os.Message;
 import android.os.SystemClock;
+import android.os.UserHandle;
 
 import com.sonf.core.future.IOFuture;
 import com.sonf.core.future.IWriteFuture;
@@ -22,6 +23,7 @@ import com.sonf.future.ConnectFuture;
 import com.sonf.nio.NioChannelController;
 import com.sonf.nio.NioSession;
 import com.sonf.nio.NioSocketConfig;
+import com.spde.sclauncher.DebugDynamic;
 import com.spde.sclauncher.net.codec.AesCipherFilter;
 import com.spde.sclauncher.net.codec.SCProtocolCodecFilter;
 import com.spde.sclauncher.net.message.GZ.*;
@@ -40,7 +42,7 @@ import com.yynie.myutils.StringUtils;
 import java.io.BufferedReader;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
-import java.io.FileWriter;
+
 import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.util.ArrayList;
@@ -56,24 +58,29 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static com.spde.sclauncher.SCConfig.PERMANENT_FILE;
+import static com.spde.sclauncher.SCConfig.DEFAULT_SERVER_ADDRESS;
+import static com.spde.sclauncher.SCConfig.NET_WATCHER_DELAY_MS;
+import static com.spde.sclauncher.SCConfig.NET_WATCHER_ENABLE;
 import static com.spde.sclauncher.SCConfig.SERIAL_REQ_LIMIT;
+import static com.spde.sclauncher.SCConfig.TEST_SERVER_FILE;
 import static com.spde.sclauncher.SchoolCardPref.*;
-import static com.spde.sclauncher.SCConfig.SERVER_ADDRESS;
-import static com.spde.sclauncher.SCConfig.CLOSE_NETWORK_SESSION;
+
 /**
  * 这里面处理 登录，心跳，以及其他周期性数据上报(有些需要从外部得到数据)
  * 服务器下发数据 如果不需要通知外部模块 也在这里处理
  * 需要通知外部的，通过注册监听来实现
  * */
 public class NetCommClient {
-    private final Logger log = Logger.get(NetCommClient.class, Logger.Level.INFO);
+    private final Logger log = Logger.get(NetCommClient.class, Logger.Level.DEBUG);
+
+    private final String NET_WATCHER_ACTION = "com.spde.sclauncher.net_watcher";
+
     private final Pattern timePattern = Pattern.compile("(\\d{4})(\\d{2})(\\d{2})(\\d{2})(\\d{2})"); //一个解析服务器时间的正则
     /** 默认值 */
     private final String MENUFACTURE_TAG = "zywl";
     private final String AES_IV = "0102030405060708";
     private final String AES_KEY = "gzxjy201805sdrgz";
-    public static final String PROTOCOL_VERSION = "171"; //终端软件协议版本
+    public static final String SUFFIX_PROTOCOL_VERSION = "171"; //终端软件协议版本
 
     public final static int DEFAULT_HEARTBEAT_DURATION_SEC = 5 * 60;  //心跳默认10分钟，登录后5分钟发第一个心跳
     private final int DEFAULT_LOCATE_DURATION_SEC = 10 * 60; //位置上报默认10分钟，需提前准备数据
@@ -157,7 +164,7 @@ public class NetCommClient {
         aesFilter.setIV(AES_IV);
         aesFilter.setKEY(AES_KEY);
         aesFilter.setMTAG(MENUFACTURE_TAG);
-        aesFilter.setVER(PROTOCOL_VERSION);
+        aesFilter.setVER(SUFFIX_PROTOCOL_VERSION);
         //屏掉的这几个都是默认值
 //        aesFilter.setMode("CBC");
 //        aesFilter.setPadding("PKCS5Padding");
@@ -252,9 +259,11 @@ public class NetCommClient {
         //注册监听网络状态，网络ok就开始登录，否则等待网络连接通知
         IntentFilter intentFilter = new IntentFilter();
         intentFilter.addAction(ConnectivityManager.CONNECTIVITY_ACTION);
+        intentFilter.addAction(NET_WATCHER_ACTION);
         netReceiver = new NetReceiver();
         context.registerReceiver(netReceiver, intentFilter);
-
+        log.i("startUp registerReceiver for " + ConnectivityManager.CONNECTIVITY_ACTION);
+        scheduleNetworkWatcher();
         started = true;
     }
 
@@ -329,7 +338,7 @@ public class NetCommClient {
     }
 
     private void startUpSession(){
-        if(CLOSE_NETWORK_SESSION){
+        if(DebugDynamic.getInstance().isCloseNetChat()){
             log.w("startUpSession CLOSE_NETWORK_SESSION = true, it's for TEST and NO network bussiness will be start!");
             return;
         } 
@@ -340,6 +349,10 @@ public class NetCommClient {
         synchronized (sessionRef){
             if(sessionRef.get() != null)
                 return;
+            if(serverRef.get() == null){
+                log.e("server address is NULL");
+                return;
+            }
             WakeLock.getInstance().acquire(); //发起连接时拿锁
             String[] spilts = serverRef.get().split(":");
             String host = spilts[0];
@@ -368,6 +381,13 @@ public class NetCommClient {
                     }
                 }
             });
+        }
+    }
+
+    private void scheduleNetworkWatcher(){
+        if(NET_WATCHER_ENABLE){
+            log.i("schedule network wather delay " + NET_WATCHER_DELAY_MS/1000 + "seconds");
+            taskScheduler.offer(new SchedTask("NetWatcher", NET_WATCHER_DELAY_MS, null, scheduleTaskCallback));
         }
     }
 
@@ -414,6 +434,7 @@ public class NetCommClient {
             l.onLoginStatusChanged(result);
         }
         notifyLoginFutures(result);
+        LocalDevice.getInstance().setLoginStatus(result);
     }
 
     private void notifySmsRequest(String tag, String text, String port){
@@ -498,6 +519,25 @@ public class NetCommClient {
         return (loginOk && session != null &&  session.isReady());
     }
 
+
+    public ResponseFuture sendRequestDirectly(ISCMessage message){
+        if(!(message instanceof IRequest)){
+            throw new RuntimeException("Please send IRequest message via sendRequest() method.");
+        }
+        IOSession session = sessionRef.get();
+        if(session == null || !session.isReady() || !loginOk){
+            log.e("sendRequest failed! session is not available: loginOk = " + loginOk);
+            return null;
+        }
+        ResponseFuture responseFuture = new ResponseFuture(session, message);
+        IWriteFuture writeFuture = send(message, responseFuture);
+        if (writeFuture == null) {
+            return null;
+        }
+        responseFuture.setWriteFuture(writeFuture);
+        return responseFuture;
+    }
+
     public ResponseFuture sendRequest(ISCMessage message){
         if(!(message instanceof IRequest)){
             throw new RuntimeException("Please send IRequest message via sendRequest() method.");
@@ -564,28 +604,28 @@ public class NetCommClient {
             if(rspF == null) return false;
             if(!(rspF instanceof SerialResponseFuture)) return false;
 
-            log.i("SerialRequesQueue add " + rspF.getRequest().getClass().getSimpleName());
+            log.d("SerialRequesQueue add " + rspF.getRequest().getClass().getSimpleName());
             synchronized (lock){
                 boolean added;
                 if(isEmpty()){
                     added =  super.add(rspF);
-                    log.i("SerialRequesQueue added in empty queue =" + added);
+                    //log.d("SerialRequesQueue added in empty queue =" + added);
                     if(added){
                         IWriteFuture writeFuture = send(rspF.getRequest(), rspF);
                         if (writeFuture == null) {
                             rspF.setException(new WriteException("Write Failed "));
                             remove(rspF);
                             added = false;
-                            log.i("SerialRequesQueue send now failed");
+                            log.e("SerialRequesQueue send now failed");
                         }else {
-                            log.i("SerialRequesQueue send now ok");
+                            log.d("SerialRequesQueue send now ok");
                             rspF.setWriteFuture(writeFuture);
                             ((SerialResponseFuture) rspF).setSerialListener(this);
                         }
                     }
                 }else{
                     added =  super.add(rspF);
-                    log.i("SerialRequesQueue added =" + added);
+                    //log.d("SerialRequesQueue added =" + added);
                 }
                 return added;
             }
@@ -605,15 +645,15 @@ public class NetCommClient {
                     rspF.removeSerialListener();
                     for(;;) {
                         SerialResponseFuture next = (SerialResponseFuture) this.peek();
-                        log.i("SerialRequesQueue onComplete peek next = " + next);
+                        log.d("SerialRequesQueue onComplete peek next = " + next);
                         if (next != null) {
                             IWriteFuture writeFuture = send(next.getRequest(), next);
                             if (writeFuture == null) {
                                 next.setException(new WriteException("Write Failed "));
                                 remove(next);
-                                log.i("SerialRequesQueue send next failed");
+                                log.e("SerialRequesQueue send next failed");
                             }else {
-                                log.i("SerialRequesQueue send next ok");
+                                log.d("SerialRequesQueue send next ok");
                                 next.setWriteFuture(writeFuture);
                                 next.setSerialListener(this);
                                 break;
@@ -659,8 +699,10 @@ public class NetCommClient {
             closeSession(true);
             scheduleNextLogin();
             notifyLoginFutures(new TimeoutException("LogIn Timout"));
+            LocalDevice.getInstance().setLoginRsp("null");
             return;
         }
+        LocalDevice.getInstance().setLoginRsp(resp.toProtocolBody());
         if(resp.getStatus() == 0 && StringUtils.equals(resp.getSmsPort(), "0") && !resp.isNeedSms()){
             log.i("dealLoginResponse: login ok");
             loginOk = true;
@@ -688,8 +730,8 @@ public class NetCommClient {
             closeSession(true);
             scheduleNextLogin();
             notifyLoginFutures(new Exception("LogIn failed with status == 1"));
-        }else if(resp.getStatus() == 2){
-            log.i("dealLoginResponse: status = 2, failed");
+        }else if(resp.getStatus() >= 2){
+            log.i("dealLoginResponse: status >= 2, failed");
             closeSession(true);
             frozen = true;
             savePreference(PREF_KEY_FROZEN_FLAG, frozen);
@@ -698,12 +740,12 @@ public class NetCommClient {
     }
 
     private void receivedResponse(ISCMessage resp){
-        log.d("receivedResponse: [" + resp.getHeader().toProtocolHeader() + "  ,  " + resp.toString() + "]");
+        //log.d("receivedResponse: [" + resp.getHeader().toProtocolHeader() + "  ,  " + resp.toString() + "]");
         String key = resp.getHeader().get$apiName();//不使用流水号  + resp.getHeader().get$sequence();
         WrappedMessage wait = waitRspMap.remove(key);
         log.d("receivedResponse: remove " + key + " from waitRspMap, waitRspMap size=" + waitRspMap.size());
         if(wait != null){
-            log.d("receivedResponse: wait=" + wait);
+            //log.d("receivedResponse: wait=" + wait);
             if(wait.isLoginMessage()){
                 dealLoginResponse((DeviceLoginRsp) resp);
             }else{
@@ -716,10 +758,10 @@ public class NetCommClient {
         }
 
         //利用心跳应答做时间同步
-//        if((resp instanceof CommonRsp) &&
-////            (StringUtils.equals(resp.getHeader().get$apiName(), HeartBeat.NAME))){
-////            timeSynchonize(resp.getHeader().get$time());
-////        }
+        if((resp instanceof CommonRsp) &&
+            (StringUtils.equals(resp.getHeader().get$apiName(), HeartBeat.NAME))){
+            timeSynchonize(resp.getHeader().get$time());
+        }
     }
 
     private void timeSynchonize(String yyyyMMddHHmmss){
@@ -758,36 +800,45 @@ public class NetCommClient {
     }
 
     private boolean saveServerAddress(String addrAndPort){
-        FileWriter writer = null;
-        try {
-            writer = new FileWriter(PERMANENT_FILE);
-            writer.write(addrAndPort);
+//        if(DebugDynamic.getInstance().isUseTestServer()){
+//            return true;
+//        }
+
+        SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+        SharedPreferences.Editor editor = prefs.edit();
+        editor.putString(PREF_KEY_SERVERADDR, addrAndPort);
+        if(editor.commit()){
             serverRef.set(addrAndPort);
-            log.i("saveServerAddress : " + addrAndPort);
             return true;
-        } catch (IOException e) {
-            e.printStackTrace();
-        } finally {
-            if(writer != null){
-                try {
-                    writer.close();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }
+        }else{
+            return false;
         }
-        return false;
+
     }
 
     private String readServerAddress(){
+        if(!DebugDynamic.getInstance().isUseTestServer()){
+            SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+            String server = prefs.getString(PREF_KEY_SERVERADDR, DEFAULT_SERVER_ADDRESS);
+            return server;
+        }
+        
         BufferedReader reader = null;
+        String filePath = TEST_SERVER_FILE;
+        log.w("user test server now, read server address from file: " + filePath + " !!!!");;
         try {
-            reader = new BufferedReader(new FileReader(PERMANENT_FILE));
+            reader = new BufferedReader(new FileReader(filePath));
             String server = reader.readLine();
+            if(server.startsWith("D#")){ //means disable AES cipher
+                DebugDynamic.getInstance().setDisableCipher(true);
+                server = server.substring(2);
+            }else{
+                DebugDynamic.getInstance().setDisableCipher(false);
+            }
             return server;
         } catch (FileNotFoundException e) {
-            log.i("readServerAddress : not found " + PERMANENT_FILE);
-            return SERVER_ADDRESS;
+            log.i("readServerAddress : not found " + filePath);
+            return null;
         } catch (IOException e) {
             e.printStackTrace();
         } finally {
@@ -799,7 +850,7 @@ public class NetCommClient {
                 }
             }
         }
-        return SERVER_ADDRESS;
+        return null;
     }
 
     private void pushLocationFrequency(SetLocationFrequency msg){
@@ -851,7 +902,7 @@ public class NetCommClient {
     }
 
     private void receivedMessage(ISCMessage in){
-        log.d("receivedMessage: [" + in.getHeader().toProtocolHeader() + "  ,  " + in.toString() + "]");
+        //log.d("receivedMessage: [" + in.getHeader().toProtocolHeader() + "  ,  " + in.toString() + "]");
         if(in instanceof SetServerInfo){
             pushServerSet((SetServerInfo) in);
         }else if(in instanceof SetLocationFrequency) {
@@ -871,7 +922,18 @@ public class NetCommClient {
                 if(!isSessionExist() && isNetworkAvailable()) {
                     delayToLogin(1 * 1000L);
                 }
+            }else if(intent.getAction().equals(NET_WATCHER_ACTION)){
+                log.i("NetReceiver:NET_WATCHER_ACTION");
+                if(!loginOk && !isSessionExist() && isNetworkAvailable()) {
+                    delayToLogin(1 * 1000L);
+                }
             }
+        }
+    }
+
+    public synchronized void netWatcherBroadCast(){
+        if(NET_WATCHER_ENABLE){
+            context.sendBroadcast(new Intent(NET_WATCHER_ACTION));
         }
     }
 
@@ -886,6 +948,10 @@ public class NetCommClient {
                     }
                 }
                 loginScheduled.set(false);
+            }else if(task.getName().equals("NetWatcher")){
+                log.i("on ScheduledTask Expired: task = NetWatcher");
+                netWatcherBroadCast();
+                scheduleNetworkWatcher();//schedule next
             }
         }
     }
@@ -1024,7 +1090,7 @@ public class NetCommClient {
                     break;
                 String key = wait.getKey();
                 if(waitRspMap.containsKey(key)){
-                    log.d("checkWaitRspQueue:  " + key + " found in waitRspMap");
+                    //log.d("checkWaitRspQueue:  " + key + " found in waitRspMap");
                     if(close || wait.isExpired()){
                         waitRspQueue.poll();
                         waitRspMap.remove(key);
@@ -1041,7 +1107,7 @@ public class NetCommClient {
                     }
                 }else{
                     //map 中没有了就是已经收到应答处理掉了 直接poll掉就行了
-                    log.d("checkWaitRspQueue:  " + key + "   NOT found in waitRspMap");
+                    //log.d("checkWaitRspQueue:  " + key + "   NOT found in waitRspMap");
                     waitRspQueue.poll();
                 }
             }
@@ -1112,7 +1178,7 @@ public class NetCommClient {
 
         @Override
         public void sessionOpened(IOSession session) {
-            log.i("sessionOpened: " + session.getUniqueKey());
+            log.d("sessionOpened: " + session.getUniqueKey());
         }
 
         @Override

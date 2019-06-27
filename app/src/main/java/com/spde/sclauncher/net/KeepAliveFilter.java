@@ -24,7 +24,7 @@ import static com.spde.sclauncher.SCConfig.SERIAL_REQ_LIMIT;
 
 
 public class KeepAliveFilter extends IFilterAdapter {
-    private final Logger log = Logger.get(KeepAliveFilter.class, Logger.Level.INFO);
+    private final Logger log = Logger.get(KeepAliveFilter.class, Logger.Level.DEBUG);
     
     private final AttributeKey LAST_READ_TIME = new AttributeKey(KeepAliveFilter.class, "lastRead");
     private final AttributeKey LAST_WRITE_TIME = new AttributeKey(KeepAliveFilter.class, "lastWrite");
@@ -49,7 +49,7 @@ public class KeepAliveFilter extends IFilterAdapter {
 
     public void sendPing(IOSession session){
         if(session != null && session.isReady()) {
-            log.i("sendPing by explicit call");
+            log.d("sendPing by explicit call");
             ISCMessage message = generatePing();
             session.write(message);
             session.setAttribute(LAST_READ_TIME, SystemClock.elapsedRealtime()); //发完心跳更新时间
@@ -136,7 +136,7 @@ public class KeepAliveFilter extends IFilterAdapter {
     }
 
     private void addToWaitRsp(IOSession session, String key){
-        log.i(key + " send");
+        log.d(key + " send");
         Queue q = (Queue) session.getAttribute(WAITING_QUEUE);
         assert (q != null);
         q.offer(key + "#" + SystemClock.elapsedRealtime());

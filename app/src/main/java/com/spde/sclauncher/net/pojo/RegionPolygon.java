@@ -13,6 +13,10 @@ public class RegionPolygon extends RegionShape {
         setName("Polygon");
     }
 
+    public List<LatLongPoint> getPointList() {
+        return pointList;
+    }
+
     @Override
     public boolean build(String[] field) {
         //Polygon（注：代表多边形,多边形最多8个点）
@@ -41,5 +45,17 @@ public class RegionPolygon extends RegionShape {
             }
         }
         return false;
+    }
+
+    @Override
+    public String getElementsInString() {
+        StringBuilder sb = new StringBuilder();
+        for(LatLongPoint p: pointList){
+            sb.append("(")
+                .append(p.getLatitude()).append("#").append(p.getLongitude())
+                .append(")")
+                .append("*");
+        }
+        return sb.toString();
     }
 }

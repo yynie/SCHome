@@ -15,7 +15,7 @@ import java.util.Calendar;
 import java.util.List;
 
 public class WhiteListDataSource extends AbstractDataSource {
-    private final Logger log = Logger.get(WhiteListDataSource.class, Logger.Level.INFO);
+    private final Logger log = Logger.get(WhiteListDataSource.class, Logger.Level.DEBUG);
     private static WhiteListDataSource sInstance;
     private List<WhiteListItem> itemList = new ArrayList<WhiteListItem>();
 
@@ -150,7 +150,7 @@ public class WhiteListDataSource extends AbstractDataSource {
                 String phone = del.getPhone();
                 if (StringUtils.isNotBlank(phone)) {
                     delphones.add(phone);
-                    log.i("update to delete phone=" + phone);
+                    log.d("update to delete phone=" + phone);
                 }
             }
             if (!delphones.isEmpty()) {
@@ -186,10 +186,10 @@ public class WhiteListDataSource extends AbstractDataSource {
         values.put(SCDB.WhiteList.DAY, dayInWeek);
         if(insert){
             Uri insertedItemUri = getContext().getContentResolver().insert(uri, values);
-            log.i("insertOrUpdateMasterItem insertedItemUri=" + insertedItemUri);
+            log.d("insertOrUpdateMasterItem insertedItemUri=" + insertedItemUri);
         }else{
             int updateRow = getContext().getContentResolver().update(uri, values, SCDB.WhiteList.PHONE + "='master'", null);
-            log.i("insertOrUpdateMasterItem updateRow=" + updateRow);
+            log.d("insertOrUpdateMasterItem updateRow=" + updateRow);
         }
     }
 
@@ -214,18 +214,18 @@ public class WhiteListDataSource extends AbstractDataSource {
             values.put(SCDB.WhiteList.DAY, "");
             if(existIds.isEmpty()){
                 Uri insertedItemUri = getContext().getContentResolver().insert(uri, values);
-                log.i("updateOrInsert insertedItemUri=" + insertedItemUri);
+                log.d("updateOrInsert insertedItemUri=" + insertedItemUri);
             }else {
                 int updateId = existIds.remove(0);
                 int updateRow = getContext().getContentResolver().update(uri, values, "_id="+updateId, null);
-                log.i("updateOrInsert updateRow=" + updateRow);
+                log.d("updateOrInsert updateRow=" + updateRow);
             }
         }
         if(!existIds.isEmpty()){
             for(Integer id : existIds){
                 if(id != null){
                     int delnum = getContext().getContentResolver().delete(uri, "_id="+id, null);
-                    log.i("updateOrInsert delete unused item id=" + id + ", delnum="+delnum);
+                    log.d("updateOrInsert delete unused item id=" + id + ", delnum="+delnum);
                 }
             }
         }
@@ -241,14 +241,14 @@ public class WhiteListDataSource extends AbstractDataSource {
         String where = SCDB.WhiteList.PHONE + " IN (" + phones.substring(0, phones.length() -1) + ")";
 
         int delnum = getContext().getContentResolver().delete(uri, where, null);
-        log.i("update deleted delnum=" + delnum);
+        log.d("update deleted delnum=" + delnum);
     }
 
     private void deleteAll(){
         synchronized (itemList) {
             Uri uri = Uri.parse("content://" + SCDB.AUTHORITY + "/whitelist");
             int delnum = getContext().getContentResolver().delete(uri, null, null);
-            log.i("deleteAll delnum=" + delnum);
+            log.d("deleteAll delnum=" + delnum);
 
             itemList.clear();
         }

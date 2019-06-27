@@ -16,7 +16,7 @@ import java.util.Comparator;
 import java.util.List;
 
 public class TaskScheduler{
-    private static Logger log = Logger.get(TaskScheduler.class, Logger.Level.INFO);
+    private static Logger log = Logger.get(TaskScheduler.class, Logger.Level.DEBUG);
     private final static String INTENT_WAKE_UP = "com.spde.sclauncher.SCHEDULED_WAKE_UP";
     private Context context;
     private AlarmManager alarmManager;

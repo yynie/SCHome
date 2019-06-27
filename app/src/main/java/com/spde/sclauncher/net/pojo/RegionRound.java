@@ -49,4 +49,13 @@ public class RegionRound extends RegionShape {
         }
         return false;
     }
+
+    @Override
+    public String getElementsInString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("(").append(center.getLatitude()).append("#").append(center.getLongitude()).append(")")
+                .append("*")
+                .append("(").append(radius).append(")");
+        return sb.toString();
+    }
 }

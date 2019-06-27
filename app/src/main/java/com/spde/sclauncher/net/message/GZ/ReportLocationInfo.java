@@ -30,8 +30,6 @@ public class ReportLocationInfo extends AbstractISCMessage<GZProtocolHeader> imp
         super(header);
     }
 
-
-
     public void setNmea(String nmea) {
         this.nmea = nmea;
     }
@@ -70,8 +68,9 @@ public class ReportLocationInfo extends AbstractISCMessage<GZProtocolHeader> imp
             }
         }
         StringBuilder sb = new StringBuilder();
-        String defaultNmea = "1E0.000000N0.000000" + "T" + genTimsProtocolString();
-        sb.append( StringUtils.isBlank(nmea) ? defaultNmea : nmea ).append(SPLIT_CH)
+        String timeStr = "T" + genTimsProtocolString();
+        String defaultNmea = "1E0.000000N0.000000";
+        sb.append( StringUtils.isBlank(nmea) ? defaultNmea : nmea ).append(timeStr).append(SPLIT_CH)
                 .append(StringUtils.isBlank(lbs) ? "0" :lbs).append(SPLIT_CH).
                 append(StringUtils.isBlank(wifiString) ? "0" : wifiString);
         return sb.toString();

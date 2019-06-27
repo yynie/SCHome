@@ -37,4 +37,13 @@ public class RegionRectangle extends RegionShape {
         }
         return false;
     }
+
+    @Override
+    public String getElementsInString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("(").append(leftTop.getLatitude()).append("#").append(leftTop.getLongitude()).append(")")
+            .append("*")
+            .append("(").append(rightBottom.getLatitude()).append("#").append(rightBottom.getLongitude()).append(")");
+        return sb.toString();
+    }
 }

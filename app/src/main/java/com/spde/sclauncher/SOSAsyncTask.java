@@ -18,7 +18,7 @@ import java.util.concurrent.TimeoutException;
 
 class SOSAsyncTask extends AsyncTask<Object, Void, String> {
     public static final int MSG_SOS_BY_USER_GO = 50590;//sosgo
-    private static Logger log = Logger.get(SOSAsyncTask.class, Logger.Level.INFO);
+    private static Logger log = Logger.get(SOSAsyncTask.class, Logger.Level.DEBUG);
     private final WeakReference<Business> businessRef;
     private final WeakReference<Handler> handlerRef;
     private final Object lock;
@@ -125,7 +125,7 @@ class SOSAsyncTask extends AsyncTask<Object, Void, String> {
                     flag |= F_ABORT;  //not send
                     continue;
                 }
-                log.i("SOS wait");
+                log.d("SOS wait");
                 while(true) {
                     try {
                         future.await(100L);
@@ -151,7 +151,7 @@ class SOSAsyncTask extends AsyncTask<Object, Void, String> {
                 while(true) {
                     try {
                         if(writeFuture == null){//not send yet
-                            log.i("locationReport not send yet");
+                            log.d("locationReport not send yet");
                             future.await(100L);
                             if(isTimeOut()){
                                 log.i("locationReport not send and timeout");
@@ -163,7 +163,7 @@ class SOSAsyncTask extends AsyncTask<Object, Void, String> {
                                 flag |= F_ABORT;  //not send but done, means error
                                 break;
                             }else if(writeFuture != null){
-                                log.i("locationReport sendddddd");
+                                log.i("locationReport sending...");
                                 continue; //send now wait for send ok
                             }
                         }else if(writeFuture.isWritten()) {
@@ -183,7 +183,7 @@ class SOSAsyncTask extends AsyncTask<Object, Void, String> {
                     }
                 }
             } else if((flag & F_LOCATION_GET) == F_LOCATION_GET){
-                log.i("check login wait");
+                log.d("check login wait");
                 LoginFuture future = business.requestLoginByUser();
                 while(true) {
                     try {
@@ -203,7 +203,7 @@ class SOSAsyncTask extends AsyncTask<Object, Void, String> {
                     }
                 }
             } else if(flag == 0){
-                log.i("wait for locFuture");
+                log.d("wait for locFuture");
                 while(true) {
                     try {
                         locFuture.await(300L);

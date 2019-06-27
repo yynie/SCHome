@@ -49,7 +49,8 @@ public class DeviceLoginRsp extends AbstractISCMessage<GZProtocolHeader> impleme
     @Override
     public String toProtocolBody() {
         //TYPE_UPSTREAM_RSP 的消息无需实现此方法
-        return null;
+//        return null;
+        return "" + status + "@" + smsPort + "@" + (needSms?1:0);
     }
 
     @Override

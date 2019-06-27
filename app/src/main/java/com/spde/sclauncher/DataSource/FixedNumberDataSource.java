@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Map;
 
 public class FixedNumberDataSource extends AbstractDataSource {
-    private final Logger log = Logger.get(FixedNumberDataSource.class, Logger.Level.INFO);
+    private final Logger log = Logger.get(FixedNumberDataSource.class, Logger.Level.DEBUG);
     private static FixedNumberDataSource sInstance;
     public static int SOS_KEY_ID = 0;
     public static int A_KEY_ID = 1;
@@ -51,7 +51,7 @@ public class FixedNumberDataSource extends AbstractDataSource {
     }
 
     private void updateOrInsert(int id, String phone){
-        log.i("updateOrInsert id=" + id + ",phone=" + phone);
+        log.d("updateOrInsert id=" + id + ",phone=" + phone);
         boolean insert = true;
         Uri uri = Uri.parse("content://" + SCDB.AUTHORITY + "/contact/" + id);
         Cursor cursor = getContext().getContentResolver().query(uri, null,null,null, null);
@@ -69,13 +69,13 @@ public class FixedNumberDataSource extends AbstractDataSource {
             values.put(SCDB.Contacts.PHONE, phone);
             values.put(SCDB.Contacts.NAME, "");
             Uri insertedItemUri = getContext().getContentResolver().insert(insertUri, values);
-            log.i("updateOrInsert insertedItemUri=" + insertedItemUri);
+            log.d("updateOrInsert insertedItemUri=" + insertedItemUri);
         }else{
             ContentValues values = new ContentValues();
             values.put(SCDB.Contacts.PHONE, phone);
             values.put(SCDB.Contacts.NAME, "");
             int updateRow = getContext().getContentResolver().update(uri, values, null, null);
-            log.i("updateOrInsert updateRow=" + updateRow);
+            log.d("updateOrInsert updateRow=" + updateRow);
         }
     }
 

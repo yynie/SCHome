@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static com.spde.sclauncher.SCConfig.KEEP_SCREEN_ON;
 
 public class WakeLock {
-    private static Logger log = Logger.get(WakeLock.class, Logger.Level.INFO);
+    private static Logger log = Logger.get(WakeLock.class, Logger.Level.DEBUG);
     private static WakeLock sInstance = null;
     private android.os.PowerManager.WakeLock cpuLock;
     private AtomicInteger lockCounter = new AtomicInteger(0);

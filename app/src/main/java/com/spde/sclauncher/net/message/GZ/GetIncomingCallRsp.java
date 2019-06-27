@@ -82,6 +82,10 @@ public class GetIncomingCallRsp extends AbstractISCMessage<GZProtocolHeader> imp
             String[] dels = delstr.split("!");
             for(String del:dels){
                 if(StringUtils.isNotBlank(del)){
+                    int pos = del.indexOf("=");
+                    if(pos >= 0){
+                        del = del.substring(0, pos);
+                    }
                     deletePhones.add(new IncomingCallSet(del, null));
                 }
             }

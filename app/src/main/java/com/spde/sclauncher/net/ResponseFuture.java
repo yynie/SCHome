@@ -29,7 +29,7 @@ public class ResponseFuture extends DefaultIOFuture {
     public boolean retryCountIncrement(){
         if(enableRetry) {
             retryCount++;
-            return (retryCount <= maxRetry);
+            return (retryCount < maxRetry);
         }
         return false;
     }

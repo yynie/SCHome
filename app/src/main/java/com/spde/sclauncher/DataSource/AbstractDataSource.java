@@ -1,8 +1,11 @@
 package com.spde.sclauncher.DataSource;
 
 import android.content.Context;
+import android.net.Uri;
 
 public abstract class AbstractDataSource {
+    protected static final String AUTHORITY = "com.spde.sclauncher.data";
+    public static final Uri CONTENT_URI = Uri.parse("content://" + AUTHORITY );
     private Context context;
 
     public void init(Context context){

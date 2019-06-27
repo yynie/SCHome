@@ -8,7 +8,8 @@ import com.spde.sclauncher.provider.SCDB;
 import com.yynie.myutils.Logger;
 
 public class ProfileModeDataSource extends AbstractDataSource{
-    private final Logger log = Logger.get(ProfileModeDataSource.class, Logger.Level.INFO);
+    private final Logger log = Logger.get(ProfileModeDataSource.class, Logger.Level.DEBUG);
+    public static final Uri CONTENT_URI = Uri.parse("content://" + AUTHORITY + "/profile");
     private static ProfileModeDataSource sInstance;
 
     public static ProfileModeDataSource getInstance(){
@@ -92,16 +93,17 @@ public class ProfileModeDataSource extends AbstractDataSource{
         values.put(SCDB.Profile.CALL_OUT_FORBID, isOutgoingForbidden?1:0);
         if(updateId == null){
             Uri insertedItemUri = getContext().getContentResolver().insert(uri, values);
-            log.i("update insertedItemUri=" + insertedItemUri);
+            log.d("update insertedItemUri=" + insertedItemUri);
         }else{
             int updateRow = getContext().getContentResolver().update(uri, values, "_id="+updateId, null);
-            log.i("update updateRow=" + updateRow);
+            log.d("update updateRow=" + updateRow);
         }
+        getContext().getContentResolver().notifyChange(CONTENT_URI,null);
     }
 
     private void deleteAll(){
         Uri uri = Uri.parse("content://" + SCDB.AUTHORITY + "/profile");
         int delnum = getContext().getContentResolver().delete(uri, null, null);
-        log.i("deleteAll delnum=" + delnum);
+        log.d("deleteAll delnum=" + delnum);
     }
 }

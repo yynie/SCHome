@@ -3,6 +3,7 @@ package com.spde.sclauncher.net.message.GZ;
 import com.spde.sclauncher.net.LocalDevice;
 import com.spde.sclauncher.net.message.ISCHeader;
 import com.spde.sclauncher.net.message.Type;
+import com.yynie.myutils.StringUtils;
 
 public class GZProtocolHeader implements ISCHeader {
     //起始标识符 [
@@ -19,6 +20,17 @@ public class GZProtocolHeader implements ISCHeader {
     public GZProtocolHeader() {
         $devId = LocalDevice.getInstance().getImei();
         $iccid = LocalDevice.getInstance().getIccid();
+    }
+
+    private void validateDeviceInfo(){
+        if(StringUtils.isBlank($devId)){
+            $devId = LocalDevice.getInstance().getImei();
+            //log.w("validateDeviceInfo $devId=" + $devId);
+        }
+        if(StringUtils.isBlank($iccid)){
+            $iccid = LocalDevice.getInstance().getIccid();
+            //log.w("validateDeviceInfo $iccid=" + $iccid);
+        }
     }
 
     @Override
@@ -108,6 +120,7 @@ public class GZProtocolHeader implements ISCHeader {
 
     @Override
     public String toProtocolHeader() {
+        validateDeviceInfo();
         String SPLIT_CH = ",";
         StringBuilder sb = new StringBuilder();
         sb.append($devId).append(SPLIT_CH).append($iccid).append(SPLIT_CH)

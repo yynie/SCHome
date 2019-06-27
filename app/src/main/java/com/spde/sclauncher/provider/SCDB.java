@@ -44,4 +44,18 @@ public class SCDB {
         public static final String CALL_IN_FORBID = "forbid_in";
         public static final String CALL_OUT_FORBID = "forbid_out";
     }
+    public static final String TABLE_FENCE = "t_fence";
+    public static final class Fence {
+        public static final String REGID = "regid";
+        public static final String REGTYPE = "regtype";
+        public static final String SHAPE = "shape";
+        public static final String ELES = "eles";
+        public static final String TIME = "time";
+        public static final String DAY = "day";
+    }
+    public static final String TABLE_CROSS_FENCE = "t_crossfence";
+    public static final class CrossFence {
+        public static final String REGID = "regid";
+        public static final String UPDATETIME = "updatetime";
+    }
 }

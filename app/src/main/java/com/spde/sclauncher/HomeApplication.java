@@ -6,20 +6,23 @@ import com.spde.sclauncher.util.WakeLock;
 import com.yynie.myutils.Logger;
 
 public class HomeApplication extends Application {
+    private final Logger log = Logger.get(HomeApplication.class, Logger.Level.DEBUG);
 
+    private DebugDynamic debugDynamic;
     @Override
     public void onCreate() {
         super.onCreate();
 
         /**** school card start  ****/
-        //init Logger global Level
-        if(SCConfig.DEBUG) {
-            Logger.setGlobalLevel(Logger.Level.INFO);
+        debugDynamic = new DebugDynamic(this);
+         //init Logger global Level
+        if(debugDynamic.isDebug()) {
+            Logger.setGlobalLevel(Logger.Level.DEBUG);
         }else{
-            Logger.setGlobalLevel(Logger.Level.WARN);
+            Logger.setGlobalLevel(Logger.Level.INFO);
         }
 
-        Logger.setGlobalHead("[@SC]");
+        Logger.setGlobalHead("[@SC]"); 
 
         WakeLock.getInstance().init(this);
         /**** school card end  ****/

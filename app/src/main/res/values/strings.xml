@@ -6,4 +6,8 @@
     <string name="sos_call_forbid_classmode">SOS call forbidden in class</string>
     <string name="call_forbid_classmode">Call forbidden in class</string>
     <string name="dlcx_reply" translatable="false">您好, 智能学生卡的当前电量为 %1$s</string>
+
+    <string name="hint_sim_unavailable">无法连接到移动网络</string>
+    <string name="server_cmd_reply_ok">服务器地址设置成功</string>
+    <string name="server_cmd_reply_err">服务器地址设置失败</string>
 </resources>

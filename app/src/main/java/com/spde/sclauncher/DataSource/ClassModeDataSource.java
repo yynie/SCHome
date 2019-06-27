@@ -13,7 +13,9 @@ import java.util.Calendar;
 import java.util.List;
 
 public class ClassModeDataSource extends AbstractDataSource {
-    private final Logger log = Logger.get(ClassModeDataSource.class, Logger.Level.INFO);
+    private final Logger log = Logger.get(ClassModeDataSource.class, Logger.Level.DEBUG);
+    public static final Uri CONTENT_URI = Uri.parse("content://" + AUTHORITY + "/classmode");
+
     private static ClassModeDataSource sInstance;
     private List<ClassItem> classItemList = new ArrayList<ClassItem>();
 
@@ -77,6 +79,7 @@ public class ClassModeDataSource extends AbstractDataSource {
             }
             classItemList.clear();
         }
+        getContext().getContentResolver().notifyChange(CONTENT_URI,null);
     }
 
     public boolean isInClass(){
@@ -183,7 +186,7 @@ public class ClassModeDataSource extends AbstractDataSource {
             values.put(SCDB.ClassMode.SOS_IN, isSosIncoming?1:0);
             values.put(SCDB.ClassMode.SOS_OUT, isSosOutgoing?1:0);
             Uri insertedItemUri = getContext().getContentResolver().insert(uri, values);
-            log.i("updateOrInsert insertedItemUri=" + insertedItemUri);
+            log.d("updateOrInsert insertedItemUri=" + insertedItemUri);
         }else{
             ContentValues values = new ContentValues();
             values.put(SCDB.ClassMode.STARTMIN, period.getStartMinute());
@@ -193,7 +196,7 @@ public class ClassModeDataSource extends AbstractDataSource {
             values.put(SCDB.ClassMode.SOS_IN, isSosIncoming?1:0);
             values.put(SCDB.ClassMode.SOS_OUT, isSosOutgoing?1:0);
             int updateRow = getContext().getContentResolver().update(uri, values, "_id="+id, null);
-            log.i("updateOrInsert updateRow=" + updateRow);
+            log.d("updateOrInsert updateRow=" + updateRow);
         }
     }
 
@@ -201,7 +204,7 @@ public class ClassModeDataSource extends AbstractDataSource {
         synchronized (classItemList) {
             Uri uri = Uri.parse("content://" + SCDB.AUTHORITY + "/classmode");
             int delnum = getContext().getContentResolver().delete(uri, null, null);
-            log.i("deleteAll delnum=" + delnum);
+            log.d("deleteAll delnum=" + delnum);
             classItemList.clear();//
         }
     }

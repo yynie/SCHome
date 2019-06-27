@@ -17,6 +17,8 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         createServerSmsTable(db);
         createWhiteListTable(db);
         createProfileTable(db);
+        createFenceTable(db);
+        createCrossFenceTable(db);
     }
 
     private void createContactsTable(SQLiteDatabase db){
@@ -88,6 +90,27 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         db.execSQL(SQL);
     }
 
+    private void createFenceTable(SQLiteDatabase db){
+        String SQL =
+                "create table if not exists " + SCDB.TABLE_FENCE + " ("
+                        + SCDB.Fence.REGID + " INTEGER primary key,"
+                        + SCDB.Fence.REGTYPE + " INTEGER,"
+                        + SCDB.Fence.SHAPE + " text,"
+                        + SCDB.Fence.ELES + " text,"
+                        + SCDB.Fence.TIME + " text,"
+                        + SCDB.Fence.DAY + " text"
+                        + ");";
+        db.execSQL(SQL);
+    }
+
+    private void createCrossFenceTable(SQLiteDatabase db){
+        String SQL =
+                "create table if not exists " + SCDB.TABLE_CROSS_FENCE + " ("
+                        + SCDB.CrossFence.REGID + " INTEGER primary key,"
+                        + SCDB.CrossFence.UPDATETIME + " INTEGER"
+                        + ");";
+        db.execSQL(SQL);
+    }
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
@@ -96,6 +119,8 @@ public class DatabaseHelper extends SQLiteOpenHelper {
         db.execSQL("DROP TABLE IF EXISTS " + SCDB.TABLE_SERVER_SMS);
         db.execSQL("DROP TABLE IF EXISTS " + SCDB.TABLE_WHTTELIST);
         db.execSQL("DROP TABLE IF EXISTS " + SCDB.TABLE_PROFILE);
+        db.execSQL("DROP TABLE IF EXISTS " + SCDB.TABLE_FENCE);
+        db.execSQL("DROP TABLE IF EXISTS " + SCDB.TABLE_CROSS_FENCE);
         onCreate(db);
     }
 }

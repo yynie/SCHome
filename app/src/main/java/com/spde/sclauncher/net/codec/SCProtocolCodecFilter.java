@@ -6,6 +6,7 @@ import com.sonf.filter.IProtocolDecoder;
 import com.sonf.filter.IProtocolEncoder;
 import com.sonf.filter.IProtocolOutput;
 import com.sonf.filter.ProtocolFilter;
+import com.spde.sclauncher.DebugDynamic;
 import com.spde.sclauncher.net.message.BodyFormatException;
 import com.spde.sclauncher.net.message.GZ.CommonRsp;
 import com.spde.sclauncher.net.message.IRequest;
@@ -24,7 +25,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class SCProtocolCodecFilter extends ProtocolFilter {
-    private final Logger log = Logger.get(SCProtocolCodecFilter.class, Logger.Level.INFO);
+    private final Logger log = Logger.get(SCProtocolCodecFilter.class, Logger.Level.DEBUG);
     private final String START_SYM = "[";
     private final String END_SYM = "]";
     private final String SPLIT_CH = ",";
@@ -43,9 +44,6 @@ public class SCProtocolCodecFilter extends ProtocolFilter {
         this.headerFieldNumber = 0;
         Field[] fields = headerType.getDeclaredFields();
         for (Field f : fields) {
-            if(f.isSynthetic()){  //Android studio 调试环境在高版本api上会向类中添加成员变量
-                continue;
-            }
             if(f.getName().startsWith("$")){
                 this.headerFieldNumber ++;
             }
@@ -84,7 +82,9 @@ public class SCProtocolCodecFilter extends ProtocolFilter {
                 ischeader.set$contentLength(body.length());
                 String header = ischeader.toProtocolHeader();
                 String send = new String(START_SYM + header + SPLIT_CH + body + END_SYM);
-                log.i("==>" + send);
+                if(DebugDynamic.getInstance().isDebugNetChat()){
+                    log.i("==>" + send);
+                }
                 out.write(send);
             }else{
                 throw new Exception("Unknown message class:" + message.getClass().getSimpleName());
@@ -102,7 +102,9 @@ public class SCProtocolCodecFilter extends ProtocolFilter {
         @Override
         public void decode(IOSession session, IoBuffer in, IProtocolOutput out) throws Exception {
             String raw = in.getString(Charset.forName("UTF-8").newDecoder());
-            log.i("<==" + raw);
+            if(DebugDynamic.getInstance().isDebugNetChat()){
+                log.i("<==" + raw);
+            }
 
             if(StringUtils.isBlank(raw)) return;
 
@@ -120,7 +122,7 @@ public class SCProtocolCodecFilter extends ProtocolFilter {
                 if(pos < 0){
                     if(i == (headerFieldNumber - 1)){
                         //不带报文体的消息
-                        log.i("Message without body");
+                        log.d("Message without body");
                         fields[i] = inString;
                         inString = "";
                     }else {
@@ -149,7 +151,7 @@ public class SCProtocolCodecFilter extends ProtocolFilter {
                     return;
                 }
                 if(type == Type.TYPE_UPSTREAM_RSP) {
-                    log.i("try to match to CommonRsp");
+                    log.d("try to match to CommonRsp");
                     msgType = getMessageType(CommonRsp.class.getSimpleName(), type);
                     if(msgType != null) {
                         Constructor<? extends ISCMessage> msgCons = msgType.getConstructor(ISCHeader.class);

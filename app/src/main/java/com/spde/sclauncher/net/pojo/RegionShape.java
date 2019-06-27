@@ -28,4 +28,5 @@ public abstract class RegionShape implements Serializable {
     }
 
     public abstract boolean build(String[] field);
+    public abstract String getElementsInString();
 }

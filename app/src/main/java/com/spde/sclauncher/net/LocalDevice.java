@@ -5,6 +5,7 @@ package com.spde.sclauncher.net;
  * */
 public class LocalDevice {
     private static LocalDevice sInstance;
+    public static final String PROTOCOL_VERSION = "21";
     private String imei;
     private String iccid; //25位？
     private int keyNumber; //终端普通键数量
@@ -12,6 +13,9 @@ public class LocalDevice {
     private int devType = 2; //终端类型   1=GPS, 2=CellID, 3=AGPS
     private boolean zoneAlarm; //终端是否具备区域报警功能
     private boolean setIncommingPhone;   //终端是否具备设置呼入号码功能
+    private String RFIDNumber;
+    private boolean loginStatus = false;
+    private String loginRsp;
 
     public static LocalDevice getInstance(){
         synchronized (LocalDevice.class){
@@ -104,5 +108,29 @@ public class LocalDevice {
         synchronized (LocalDevice.class) {
             this.setIncommingPhone = setIncommingPhone;
         }
+    }
+
+    public void setRFIDNumber(String RFIDNumber) {
+        this.RFIDNumber = RFIDNumber;
+    }
+
+    public String getRFIDNumber() {
+        return RFIDNumber;
+    }
+
+    public boolean isLoginStatus() {
+        return loginStatus;
+    }
+
+    public void setLoginStatus(boolean loginStatus) {
+        this.loginStatus = loginStatus;
+    }
+
+    public String getLoginRsp() {
+        return loginRsp;
+    }
+
+    public void setLoginRsp(String loginRsp) {
+        this.loginRsp = loginRsp;
     }
 }

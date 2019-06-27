@@ -1,6 +1,7 @@
 package com.spde.sclauncher.net.pojo;
 
 import java.io.Serializable;
+import java.math.BigDecimal;
 
 public class LatLongPoint implements Serializable {
     private double Latitude;
@@ -10,8 +11,10 @@ public class LatLongPoint implements Serializable {
     }
 
     public LatLongPoint(double latitude, double longitude) {
-        Latitude = latitude;
-        Longitude = longitude;
+        BigDecimal bigLat = new BigDecimal(latitude);
+        Latitude = bigLat.setScale(6, BigDecimal.ROUND_HALF_UP).doubleValue();
+        BigDecimal bigLong = new BigDecimal(longitude);
+        Longitude = bigLong.setScale(6, BigDecimal.ROUND_HALF_UP).doubleValue();
     }
 
     public double getLatitude() {

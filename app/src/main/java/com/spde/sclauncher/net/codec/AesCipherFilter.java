@@ -10,6 +10,7 @@ import com.sonf.filter.IProtocolDecoder;
 import com.sonf.filter.IProtocolEncoder;
 import com.sonf.filter.IProtocolOutput;
 import com.sonf.filter.ProtocolFilter;
+import com.spde.sclauncher.DebugDynamic;
 import com.yynie.myutils.Logger;
 import com.yynie.myutils.StringUtils;
 
@@ -21,10 +22,8 @@ import javax.crypto.NoSuchPaddingException;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
-import static com.spde.sclauncher.SCConfig.DISABLE_CIPHER;
-
 public class AesCipherFilter extends ProtocolFilter {
-    private final Logger log = Logger.get(AesCipherFilter.class, Logger.Level.INFO);
+    private final Logger log = Logger.get(AesCipherFilter.class, Logger.Level.DEBUG);
     private final int MAX_BODY_LEN = 2 * 1024;  //接收到的数据超过2k就不行了
     private final String BODY_END = "\r\n"; //发送的密文以0d0a结尾
     private Cipher cipher;
@@ -126,9 +125,7 @@ public class AesCipherFilter extends ProtocolFilter {
             if(message instanceof String){
                 String plain = (String) message;
                 String encrypt = doEncrypt(plain);
-                if(DISABLE_CIPHER){
-                    encrypt = plain;
-                }
+
                 if(encrypt != null){
                     if(StringUtils.isNotBlank(MTAG)){
                     encrypt += "#" + MTAG + "#" + VER;
@@ -139,7 +136,9 @@ public class AesCipherFilter extends ProtocolFilter {
                     ioBuffer.putString(encrypt, charset.newEncoder());
                     ioBuffer.flip();
                     out.write(ioBuffer);
-                    log.d(encrypt);
+                    if(DebugDynamic.getInstance().isDebugNetChat()){
+                        log.i("AES:" + encrypt);
+                    }
                 }
             }else{
                 throw new Exception("String expected but " + message.getClass().getSimpleName() + " input!");
@@ -148,6 +147,7 @@ public class AesCipherFilter extends ProtocolFilter {
 
         private String doEncrypt(String plain) throws Exception{
             if(StringUtils.isBlank(plain)) return null;
+            if(DebugDynamic.getInstance().isDisableCipher()) return plain;
             Cipher aes = getCipher();
             byte[] plainText = plain.getBytes(charset.name());
             if(StringUtils.equals(padding, "ZeroPadding")){
@@ -196,14 +196,20 @@ public class AesCipherFilter extends ProtocolFilter {
                         String body = raw.substring(0, end);
                         in.position(in.position() + end + 2);
                         int pos = body.indexOf("#");
+                        if(DebugDynamic.getInstance().isDisableCipher()){
+                            pos = body.indexOf("]#");
+                            if(pos > 0){
+                                pos += 1;
+                            }
+                        }
                         if(pos > 0){
                             body = body.substring(0, pos);
                         }
-                        String plain = DISABLE_CIPHER ? body : doDecrypt(body);
-
+                        String plain = DebugDynamic.getInstance().isDisableCipher() ? body : doDecrypt(body);
+                        int bytelen = plain.getBytes("UTF-8").length;
                         if(plain != null) {
                             IoBuffer buf = new SimpleIoBuffer();
-                            buf.allocate(plain.length());
+                            buf.allocate(bytelen);
                             buf.putString(plain, Charset.forName("UTF-8").newEncoder());
                             buf.flip();
                             out.write(buf);
@@ -217,7 +223,7 @@ public class AesCipherFilter extends ProtocolFilter {
                     String raw = new String(in.buf().array(), in.position(), in.remaining());
                     int end = raw.indexOf("\r\n");
                     if(end < 0){
-                        partial += raw;
+                        partial = (partial == null)? raw : (partial + raw);
                         session.setAttribute(PARTIAL_BODY_ATT, partial);
                         in.position(in.limit());
                         if(partial.length() > MAX_BODY_LEN){
@@ -226,9 +232,9 @@ public class AesCipherFilter extends ProtocolFilter {
                             throw new Exception("Packet length exceed!, max length = " + MAX_BODY_LEN + " bytes");
                         }
                     }else{
-                        String body = partial + raw.substring(0, end);
+                        String body = (partial == null)? (raw.substring(0, end)) : (partial + raw.substring(0, end));
                         in.position(in.position() + end + 2);
-                        String plain = doDecrypt(body);
+                        String plain = DebugDynamic.getInstance().isDisableCipher() ? body : doDecrypt(body);
                         if(plain != null){
                             IoBuffer buf = new SimpleIoBuffer();
                             buf.allocate(plain.length());

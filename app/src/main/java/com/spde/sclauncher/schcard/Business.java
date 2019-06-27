@@ -10,6 +10,7 @@ import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Message;
 import android.os.SystemClock;
+import android.os.SystemProperties;
 import android.telephony.SmsManager;
 import android.telephony.TelephonyManager;
 
@@ -38,12 +39,15 @@ import com.spde.sclauncher.net.message.GZ.*;
 
 import com.spde.sclauncher.net.message.IRequest;
 import com.spde.sclauncher.net.message.ISCMessage;
+import com.spde.sclauncher.net.pojo.CrossFenceInfo;
 import com.spde.sclauncher.net.pojo.IncomingCallSet;
 import com.spde.sclauncher.net.pojo.PeriodWeeklyOnOff;
 import com.spde.sclauncher.net.pojo.RegionLimit;
+import com.spde.sclauncher.SCConfig;
 import com.spde.sclauncher.util.SchedTask;
 import com.spde.sclauncher.util.TaskScheduler;
 import com.spde.sclauncher.util.WakeLock;
+
 import com.yynie.myutils.Logger;
 import com.yynie.myutils.StringUtils;
 
@@ -64,7 +68,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static com.spde.sclauncher.SchoolCardPref.*;
 
 public class Business extends DefaultNetCommListener implements IoFutureListener<ResponseFuture> {
-    private final Logger log = Logger.get(Business.class, Logger.Level.INFO);
+    private final Logger log = Logger.get(Business.class, Logger.Level.DEBUG);
     //TelephonyIntents.ACTION_SIM_STATE_CHANGED
     private final String ACTION_SIM_STATE_CHANGED = "android.intent.action.SIM_STATE_CHANGED";
     private final Context mContext;
@@ -113,8 +117,8 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
             //监听sim卡,sim ready时读取IMEI和ICCID，启动 NetCommClient
             IntentFilter intentFilter = new IntentFilter();
             intentFilter.addAction(ACTION_SIM_STATE_CHANGED);
+            intentFilter.addAction("com.spde.sclauncher.shutdown_report");
             intentFilter.addAction(Intent.ACTION_BATTERY_LOW);
-            intentFilter.addAction(Intent.ACTION_SHUTDOWN);
             mContext.registerReceiver(broadcastReceiver, intentFilter);
 
             commClient.addListener(this);
@@ -123,6 +127,10 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
 
     public void setOnEventListener(OnBussinessEventListener onEventListener) {
         this.onEventListener = onEventListener;
+    }
+
+    public void netWatcherBroadCast(){
+        commClient.netWatcherBroadCast();
     }
 
     public void onDestroy(){
@@ -216,97 +224,8 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
     public void onRemotePush(ISCMessage push) {
         log.i("onRemotePush:" + push);
         if(push instanceof GetLocationInfo) {
-            WakeLock.getInstance().acquire();
-            final GetLocationInfoRsp rsp = new GetLocationInfoRsp((IRequest) push);
-            //至少3个wifi，总共50s时间，wifi搜10秒. 这里是立即上报 wifi优先，
-            IDataSourceCallBack icb = new IDataSourceCallBack() {
-                Map<String, Object> locationCache = new HashMap<String, Object>();
-                boolean wifiDone = false;
-                boolean gpsDone = false;
-                boolean sent = false;
-                @Override
-                public void onComplete(IDataSourceCallBack wrapped, Object result, Exception exception) {
-                    log.d(wrapped.getClass().getSimpleName() + " onComplete result=" + result + " ,exception=" + exception);
-                    if(wrapped instanceof WifiCallback){
-                        if(sent){
-                            log.e("WifiCallback already sent, NEVER be here!!");
-                            return;
-                        }
-                        if(exception != null && (exception instanceof DataFailedException)){
-                            log.e("WifiCallback failed");
-                            wifiDone = true;
-                        }else if(result != null){
-                            List<String> wifiList = new ArrayList<String>();
-                            List<LocationDataSource.WifiLocation> list = (List<LocationDataSource.WifiLocation>) result;
-                            int pickNum = 5; //最多5个
-                            for (LocationDataSource.WifiLocation loc : list) {
-                                String wifi = loc.getSsid() + "!" + loc.getBssid() + "!" + loc.getmRssi();
-                                wifiList.add(wifi);
-                                pickNum--;
-                                if (pickNum <= 0)
-                                    break;
-                            }
-                            locationCache.put("wifi", wifiList);
-                            wifiDone = true;
-                            log.i("WifiCallback data ready");
-                        }if(exception != null && (exception instanceof DataTimeOutException)){
-                            log.w("WifiCallback timeout");
-                            wifiDone = true;
-                        }
-                    }else if(wrapped instanceof NmeaCallback){
-                        if(sent){
-                            log.w("NmeaCallback already sent");
-                            LocationDataSource.getInstance().quit(wrapped);
-                            return;
-                        }
-                        if (result != null) {
-                            locationCache.put("nmea", result);
-                            gpsDone = true;
-                            log.i("NmeaCallback data ready");
-                        }else if (exception != null) {//gps 超时
-                            gpsDone = true;
-                            log.w("NmeaCallback timeout");
-                        }
-                    }
-                    if(sent){
-                        log.e("GetLocationInfoRsp already sent, NEVER be here!!");
-                        return;
-                    }
-                    if((wifiDone && (null != locationCache.get("wifi")))  /* wifi done ok */
-                            || (wifiDone && gpsDone)   /* wifi done and gps done */
-                            ){
-                        List<String> wifiList = (List<String>) locationCache.get("wifi");
-                        if(wifiList != null){
-                            rsp.setWifiList(wifiList);
-                        }else{
-                            String nmea = (String) locationCache.get("nmea");
-                            if (StringUtils.isNotBlank(nmea)) {
-                                rsp.setNmea(nmea);
-                            }
-                        }
-                        LocationDataSource.LbsLocation lbs = LocationDataSource.getInstance().getLbsLocation();
-                        String lbsString = (lbs == null) ? null : (lbs.getMcc() + "!" + lbs.getMnc() + "!" + lbs.getLac() + "!" + lbs.getCid() + "!" + lbs.getDb());
-                        rsp.setLbs(lbsString);
-                        rsp.reGenHeaderTime();
-                        log.d("body:" + rsp.toProtocolBody());
-                        IWriteFuture future = commClient.sendResponse(rsp);
-                        if(future != null) {
-                            future.setListener(new IoFutureListener<IWriteFuture>() {
-                                @Override
-                                public void onComplete(IWriteFuture future) {
-                                    log.d("send ok=" + future.isWritten() + ", e=" + future.getException());
-                                    //如果没发成功要怎么处理？？
-                                }
-                            });
-                        }
-                        sent = true;
-                        WakeLock.getInstance().release();
-                    }
-                }
-            };
-            LocationDataSource.getInstance().requestWifiLocations(3, 40, icb);
-            LocationDataSource.getInstance().openGps();
-            LocationDataSource.getInstance().requestNMEAPeriodicUpdate(50, icb);
+            //nmeaListener can be register in a thread, so we send it to handler
+            businessWorker.replyLocationNow((GetLocationInfo) push);
         }else if(push instanceof RemoteOperation) {
             RemoteOperation operation = (RemoteOperation) push;
             final boolean toReboot = operation.isDoReboot();
@@ -351,9 +270,9 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
             boolean flash = msg.isFlash();
             boolean ring = msg.isRing();
             boolean vibrate = msg.isVibrate();
-            if(showtimes > 0) {
+            // if(showtimes > 0) {
                 notifyServerSms(sms, emergent, showtimes, showType, flash, ring, vibrate);
-            }
+            // }
             CommonRsp rsp = new CommonRsp((IRequest) push);
             IWriteFuture future = commClient.sendResponse(rsp);
             if(future != null) {
@@ -382,6 +301,13 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
     @Override
     public void onLocalTimeCheck(int year, int month, int dayInMonth, int hourIn24, int minutes) {
         //TODO: 如果需要用服务器时间做校时，在这里实现
+        Calendar c = Calendar.getInstance();
+        c.set(year, month - 1, dayInMonth, hourIn24, minutes);
+        long serverTime = c.getTimeInMillis();
+        if (System.currentTimeMillis() < serverTime - SCConfig.TIME_CHECK_GATE * 60 * 1000) {
+            SystemClock.setCurrentTimeMillis(serverTime);
+            log.i("onLocalTimeCheck, set ok!");
+        }
     }
     /** NetCommListener end */
 
@@ -405,6 +331,10 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
             dealLocationReportRsp(origReq, response, exception, future);
         }
 
+        if(origReq instanceof ReportCrossBorder){
+            dealReportCrossBorderRsp(origReq, response, exception, future);
+        }
+
         if(origReq instanceof ReportCallLog){
             dealCallLogReportRsp(origReq, response, exception, future);
         }
@@ -422,7 +352,7 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
                 log.w("onComplete:timeoutCounter = " + count);
             }
         }else if(response != null) {
-            log.d("onComplete [" + response.getHeader().toProtocolHeader() + "  ,  " + response.toString() + "]");
+            //log.d("onComplete [" + response.getHeader().toProtocolHeader() + "  ,  " + response.toString() + "]");
             timeoutCounter.set(0);
         }else{
             log.e("onComplete: " + origReq.getHeader().get$apiName() + ", seq=" + origReq.getHeader().get$sequence() + " faild:" + exception);
@@ -452,13 +382,13 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
         }
         LocalDevice.getInstance().setImei(imei);
         LocalDevice.getInstance().setIccid(iccid);
-        log.i("readSimInfo: IMEI and ICCID :" + imei + "," + iccid);
+        log.d("readSimInfo: IMEI and ICCID :" + imei + "," + iccid);
     }
 
     private void readDumySimInfo(){
-        //在中移物联测试服上的账号
-        LocalDevice.getInstance().setImei("867400020316612");
-        LocalDevice.getInstance().setIccid("898600580918f6006851");
+        //贵州测试卡 18296936571 可登录商用服务器
+        LocalDevice.getInstance().setImei("867400020316677");
+        LocalDevice.getInstance().setIccid("898600f2231930317938");
     }
 
     private boolean canDoConfigCheck(int flag){
@@ -542,21 +472,24 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
         rsp.setListener(this);
     }
 
-    private void doRetry(ISCMessage req, int retryCount){
+    private void doRetry(ISCMessage req, boolean retryEnable, int retryCount, int maxRetry){
         ResponseFuture rsp = commClient.sendRequest(req);
         if(rsp == null){
             log.e("doRetry send " + req.getClass().getSimpleName() + " failed");
             return;
         }
         log.w("doRetry: " + req.getClass().getSimpleName());
-        rsp.setRetryCount(retryCount);
+        if(retryEnable && maxRetry > 0) {
+            rsp.setEnableRetry(retryEnable, maxRetry);
+            rsp.setRetryCount(retryCount);
+        }
         rsp.setListener(this);
     }
 
     private void dealLowBatteryRsp(AlarmPower req, ISCMessage response, Throwable exception, ResponseFuture future){
         if(exception != null && (exception instanceof WriteException) && req.isLowBattery()){
             if(future.retryCountIncrement()){
-                doRetry(req, future.getRetryCount());
+                doRetry(req, future.isEnableRetry(), future.getRetryCount(), future.getMaxRetry());
             }
         }
     }
@@ -567,7 +500,7 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
                 log.e("dealConfigure:" + req.getHeader().get$apiName() + " write exception:" + exception.getMessage());
             }else if(exception instanceof SocketTimeoutException){
                 if(future.retryCountIncrement()){
-                    doRetry(req, future.getRetryCount());
+                    doRetry(req, future.isEnableRetry(), future.getRetryCount(), future.getMaxRetry());
                 }
             }
         }else if(response != null) {
@@ -575,13 +508,20 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
                 //收到回复更新ConfigCheck
                 updateConfigCheck(CHECK_CONFIG_BUTTONS);
                 GetButtonsRsp rsp = (GetButtonsRsp)response;
-                FixedNumberDataSource.getInstance().updateNumbers(rsp.getKeyMap());
+                int status = rsp.getStatus();
+                if(status > 0){
+                    log.e("GetButtonsRsp return an error status=" + status + " from cloud server");
+                }else {
+                    FixedNumberDataSource.getInstance().updateNumbers(rsp.getKeyMap());
+                }
             }else if(response instanceof GetClassModeRsp){
                 //收到回复更新ConfigCheck
                 updateConfigCheck(CHECK_CONFIG_CLASS);
                 GetClassModeRsp rsp = (GetClassModeRsp)response;
                 int status = rsp.getStatus();
-                if(status == 0){//无设置
+                if(status > 0){
+                    log.e("GetClassModeRsp return an error status=" + status + " from cloud server");
+                }else if(status == 0){//无设置
                     ClassModeDataSource.getInstance().reset();
                 }else{
                     List<PeriodWeeklyOnOff> periods =  rsp.getPeriodList();
@@ -594,7 +534,9 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
                 updateConfigCheck(CHECK_CONFIG_CALL);
                 GetIncomingCallRsp rsp = (GetIncomingCallRsp)response;
                 int status = rsp.getStatus();
-                if(status == 0) {//无设置
+                if(status > 0){
+                    log.e("GetIncomingCallRsp return an error status=" + status + " from cloud server");
+                }else if(status == 0) {//无设置
                     WhiteListDataSource.getInstance().reset();
                 }else{
                     List<IncomingCallSet> addlist = rsp.getAddPhones();
@@ -645,7 +587,7 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
     private void dealCallLogReportRsp(ISCMessage req, ISCMessage response, Throwable exception, ResponseFuture future){
         if(exception != null && (exception instanceof WriteException)){
             if(future.retryCountIncrement()){
-                doRetry(req, future.getRetryCount());
+                doRetry(req, future.isEnableRetry(), future.getRetryCount(), future.getMaxRetry());
             }
         }
     }
@@ -654,15 +596,28 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
         if(exception != null && (exception instanceof WriteException)){
             //位置上报写失败要重发，
             if(future.retryCountIncrement()){
-                doRetry(req, future.getRetryCount());
+                doRetry(req, future.isEnableRetry(), future.getRetryCount(), future.getMaxRetry());
             }
         }else{ //这里有肯能是应答超时，也有可能是收到应答
             // 应答超时的话 不一定表示服务器没收到，协议要求必须严格按照10分钟一个发送，否则会锁死，因此重发的风险更大，忽略应答超时
             scheduleLocation();//计划发下一个位置上报
         }
     }
+
+    private void dealReportCrossBorderRsp(ISCMessage req, ISCMessage response, Throwable exception, ResponseFuture future){
+        if(response == null && exception != null){
+            log.i("ReportCrossBorder failed: exception=" + exception);
+            if(future.retryCountIncrement()){
+                log.i("ReportCrossBorder retry");
+                doRetry(req, future.isEnableRetry(), future.getRetryCount(), future.getMaxRetry());
+            }
+        }else{
+            log.i("ReportCrossBorder done");
+        }
+    }
+
     private void scheduleLocation(){
-        log.i("scheduleLocation");
+        log.d("scheduleLocation");
         int delaySec = commClient.getLocateRateSeconds();
         //提前开gps
         if(delaySec > GPS_PREPARE_SECONDS) {
@@ -738,6 +693,17 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
         }
     }
 
+    // public void testGps(){
+    //     WakeLock.getInstance().acquire();
+    //     LocationDataSource.getInstance().openGps();
+    //     LocationDataSource.getInstance().requestNMEAPeriodicUpdate(80, new IDataSourceCallBack() {
+    //         @Override
+    //             public void onComplete(IDataSourceCallBack wrapped, Object result, Exception exception) {
+    //                 log.i("test gps result=" + result + ", exception=" + exception);
+    //             }
+    //     });
+    // }
+
     private void reportLocation(int gpsSeconds, int wifiSeconds){
         //if(locationReporting.compareAndSet(false, true)){
             WakeLock.getInstance().acquire();
@@ -775,15 +741,20 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
                                         }
                                         locationCache.put("wifi", wifiList);
                                     }
+                                    if(exception != null){
+                                        log.i("reportLocation ex=" + exception.getMessage());
+                                    }
                                 }
                             });
                         }
                     }
                     if (exception != null) {//gps 超时
+                        boolean needCheckFence = false;
                         ReportLocationInfo report = new ReportLocationInfo(null);
                         String nmea = (String) locationCache.get("nmea");
                         if (StringUtils.isNotBlank(nmea)) {
                             report.setNmea(nmea);
+                            needCheckFence = true;
                         } else if (locationCache.get("wifi") != null) {
                             List<String> wifiList = (List<String>) locationCache.get("wifi");
                             report.setWifiList(wifiList);
@@ -803,6 +774,7 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
                         } else {
                             locationReportDelay.set(new DelayReport(report, -1, 3));
                         }
+                        if(needCheckFence) businessWorker.checkGPSFence(nmea);
                         WakeLock.getInstance().release();
                     }
                 }
@@ -818,28 +790,178 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
             log.i("on ScheduledTask Expired: task = " + task.getName());
             if(task.getName().startsWith(ReportLocationInfo.NAME)){
                 if(nextLocationTask.compareAndSet(task, null)) {
-                    //这时候离上报还有70s，50s用来搜gps， 20s用来搜wifi
-                    reportLocation(GPS_PREPARE_SECONDS - 20, 20);
+                    if (ClassModeDataSource.getInstance().isInClass()){
+                        log.i("Do NOT report Location in class mode");
+                        scheduleLocation();
+                    }else{
+                        //这时候离上报还有70s，50s用来搜gps， 20s用来搜wifi
+                        reportLocation(GPS_PREPARE_SECONDS - 20, 20);
+                    }
                 }
             }
         }
     }
 
     private class BusinessWorker extends Handler {
-        //如果要串行的话，所有上报的请求都要往reportRequestQueue中提交了
+        private final int BUSI_MSG_REPLY_LOCATION = 689;
+        private final int BUSI_MSG_BUSINESS = 666;
+        private final int BUSI_MSG_FENCE = 612;
 
         public void wakeUp(){
-            removeMessages(1);
-            sendEmptyMessage(1);
+            removeMessages(BUSI_MSG_BUSINESS);
+            sendEmptyMessage(BUSI_MSG_BUSINESS);
         }
 
         public void pause(){
-            removeMessages(1);
+            removeMessages(BUSI_MSG_BUSINESS);
+        }
+
+        public void replyLocationNow(GetLocationInfo request){
+            WakeLock.getInstance().acquire();  //lock for msg loop
+            obtainMessage(BUSI_MSG_REPLY_LOCATION, request).sendToTarget();
+        }
+
+        public void checkGPSFence(String nmeaString){
+            WakeLock.getInstance().acquire();  //lock for msg loop
+            obtainMessage(BUSI_MSG_FENCE, nmeaString).sendToTarget();
+        }
+
+        public String genTimsProtocolString(){
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmss");
+            Calendar calendar = Calendar.getInstance();
+            return sdf.format(calendar.getTime());
         }
 
         @Override
         public void handleMessage(Message message) {
-            if(commClient.isLogin()){
+            if(message.what == BUSI_MSG_FENCE){
+                String nmeaString = (String) message.obj;
+                nmeaString += "T" + genTimsProtocolString();
+                List<CrossFenceInfo> list = GpsFenceDataSource.getInstance().checkFence(nmeaString);
+                for(CrossFenceInfo info:list){
+                    ReportCrossBorder report = new ReportCrossBorder(info.getType(), info.isInFence(), info.getId());
+                    report.setNmea(nmeaString);
+                    DelayReport delayReport = new DelayReport(report, -1, 3);
+                    commitDelayReport(delayReport);
+                }
+                WakeLock.getInstance().release(); //lock for msg loop
+                return;
+            }
+            if(message.what == BUSI_MSG_REPLY_LOCATION){
+                GetLocationInfo request = (GetLocationInfo) message.obj;
+                if(request != null) {
+                    WakeLock.getInstance().acquire(); //lock for wait location info
+                    final GetLocationInfoRsp rsp = new GetLocationInfoRsp(request);
+                    //至少3个wifi，总共50s时间，wifi搜10秒. 这里是立即上报 wifi优先，
+                    IDataSourceCallBack icb = new IDataSourceCallBack() {
+                        Map<String, Object> locationCache = new HashMap<String, Object>();
+                        boolean wifiDone = false;
+                        boolean gpsDone = false;
+                        boolean sent = false;
+                        boolean checkNmea = false;
+
+                        @Override
+                        public void onComplete(IDataSourceCallBack wrapped, Object result, Exception exception) {
+                            log.d(wrapped.getClass().getSimpleName() + " onComplete result=" + result + " ,exception=" + exception);
+                            if (wrapped instanceof WifiCallback) {
+                                if (sent) {
+                                    log.e("WifiCallback already sent, NEVER be here!!");
+                                    return;
+                                }
+                                if (exception != null && (exception instanceof DataFailedException)) {
+                                    log.e("WifiCallback failed e=" + exception.getMessage());
+                                    wifiDone = true;
+                                } else if (result != null) {
+                                    List<String> wifiList = new ArrayList<String>();
+                                    List<LocationDataSource.WifiLocation> list = (List<LocationDataSource.WifiLocation>) result;
+                                    int pickNum = 5; //最多5个
+                                    for (LocationDataSource.WifiLocation loc : list) {
+                                        String wifi = loc.getSsid() + "!" + loc.getBssid() + "!" + loc.getmRssi();
+                                        wifiList.add(wifi);
+                                        pickNum--;
+                                        if (pickNum <= 0)
+                                            break;
+                                    }
+                                    locationCache.put("wifi", wifiList);
+                                    wifiDone = true;
+                                    log.i("WifiCallback data ready");
+                                }
+                                if (exception != null && (exception instanceof DataTimeOutException)) {
+                                    log.w("WifiCallback timeout");
+                                    wifiDone = true;
+                                }
+                            } else if (wrapped instanceof NmeaCallback) {
+                                if (sent && checkNmea) {
+                                    log.w("NmeaCallback already sent");
+                                    LocationDataSource.getInstance().quit(wrapped);
+                                    return;
+                                }
+                                if (result != null) {
+                                    locationCache.put("nmea", result);
+                                    gpsDone = true;
+                                    log.i("NmeaCallback data ready");
+                                } else if (exception != null) {//gps 超时
+                                    gpsDone = true;
+                                    String nmea = (String) locationCache.get("nmea");
+                                    log.w("NmeaCallback timeout checkNmea=" + checkNmea + ",nmea=" + nmea);
+                                    if(!checkNmea && StringUtils.isNotBlank(nmea)){
+                                        checkNmea = true;
+                                        businessWorker.checkGPSFence(nmea);
+                                    }
+                                }
+                                if(sent){
+                                    //log.i("NmeaCallback reply already sent checkNmea=" + checkNmea);
+                                    return;
+                                }
+                            }
+                            if (sent) {
+                                log.e("GetLocationInfoRsp already sent, NEVER be here!!");
+                                return;
+                            }
+                            if ((wifiDone && (null != locationCache.get("wifi")))  /* wifi done ok */
+                                    || (wifiDone && gpsDone)   /* wifi done and gps done */
+                                    ) {
+                                List<String> wifiList = (List<String>) locationCache.get("wifi");
+                                String nmea = (String) locationCache.get("nmea");
+                                boolean needCheckFence = StringUtils.isNotBlank(nmea);
+
+                                if (wifiList != null) {
+                                    rsp.setWifiList(wifiList);
+                                }
+                                //nmea = (String) locationCache.get("nmea");
+                                if (StringUtils.isNotBlank(nmea)) {
+                                    rsp.setNmea(nmea);
+                                }
+                                LocationDataSource.LbsLocation lbs = LocationDataSource.getInstance().getLbsLocation();
+                                String lbsString = (lbs == null) ? null : (lbs.getMcc() + "!" + lbs.getMnc() + "!" + lbs.getLac() + "!" + lbs.getCid() + "!" + lbs.getDb());
+                                rsp.setLbs(lbsString);
+                                rsp.reGenHeaderTime();
+                                log.d("body:" + rsp.toProtocolBody());
+                                IWriteFuture future = commClient.sendResponse(rsp);
+                                if (future != null) {
+                                    future.setListener(new IoFutureListener<IWriteFuture>() {
+                                        @Override
+                                        public void onComplete(IWriteFuture future) {
+                                            log.d("send ok=" + future.isWritten() + ", e=" + future.getException());
+                                            //如果没发成功要怎么处理？？
+                                        }
+                                    });
+                                }
+                                sent = true;
+                                checkNmea = needCheckFence;
+                                if(needCheckFence) businessWorker.checkGPSFence(nmea);
+                                WakeLock.getInstance().release();//lock for wait location info
+                            }
+                        }
+                    };
+                    LocationDataSource.getInstance().requestWifiLocations(3, 40, icb);
+                    LocationDataSource.getInstance().openGps();
+                    LocationDataSource.getInstance().requestNMEAPeriodicUpdate(50, icb);
+                }
+                WakeLock.getInstance().release(); //lock for msg loop
+                return;
+            }
+            if(message.what == BUSI_MSG_BUSINESS && commClient.isLogin()){
                 DelayReport location = locationReportDelay.getAndSet(null);
                 if(location != null){
                     reportRequestQueue.add(location);
@@ -896,13 +1018,40 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
                         commClient.startUp(); //startUp里面有保护，不用担心重复调用
                     }
                     checkPowerOnReport();
-                }/*else if(state == TelephonyManager.SIM_STATE_ABSENT){ //yynie for test
+                }else if(state == TelephonyManager.SIM_STATE_ABSENT){ //不插卡可以走wifi，造一个假的sim卡imsi
                     readDumySimInfo();
                     if(isSimInfoReady()) {
                         commClient.startUp(); //startUp里面有保护，不用担心重复调用
                     }
                     checkPowerOnReport();
-                }*/
+                }
+            }else if(intent.getAction().equals("com.spde.sclauncher.shutdown_report")){
+                String reason = intent.getStringExtra("reason");
+                log.i("SysIntentReceiver:" + intent.getAction() + ",reason=" + reason);
+                boolean batteryShutdown = StringUtils.equalsIgnoreCase(reason, "battery");
+                if (commClient.isLogin()) {
+                    AlarmPower powerOff = new AlarmPower(batteryShutdown ? 3 : 2);   //2=关机报警; 3=自动关机报警
+                    if(batteryShutdown){
+                        int percent = BatteryDataSource.getInstance().getBatteryPercent();
+                        powerOff.setBatteryPercent(percent);
+                    }
+                    ResponseFuture rsp = commClient.sendRequestDirectly(powerOff);
+                    if(rsp == null){
+                        log.e("send AlarmPower(shutdown_report:" + reason + ") failed");
+                        SystemProperties.set("sys.screport.marked", "true");
+                        return;
+                    }
+                    rsp.setListener(new IoFutureListener<ResponseFuture>() {
+                        @Override
+                        public void onComplete(ResponseFuture future) {
+                            log.i("DONE:: AlarmPower(shutdown_report) response=" + future.getResponse() + ", e=" + future.getException());
+                            SystemProperties.set("sys.screport.marked", "true");
+                        }
+                    });
+                }else{
+                    log.e("send AlarmPower(shutdown_report:" + reason + ") ignored, NOT login");
+                    SystemProperties.set("sys.screport.marked", "true");
+                }
             }else if(intent.getAction().equals(Intent.ACTION_BATTERY_LOW)){
                 log.i("SysIntentReceiver: ACTION_BATTERY_LOW");
                 AlarmPower alarmPower = new AlarmPower(null);
@@ -914,36 +1063,8 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
                     log.e("send AlarmPower failed");
                     return;
                 }
+                rsp.setEnableRetry(true, 3);
                 rsp.setListener(Business.this);
-            }else if(intent.getAction().equals(Intent.ACTION_SHUTDOWN)){
-                String reason = intent.getStringExtra("shutdown_mode");
-                boolean flag = intent.getBooleanExtra(Intent.EXTRA_SHUTDOWN_USERSPACE_ONLY, false);
-                log.i("SysIntentReceiver: ACTION_SHUTDOWN reason="+ reason + ",flag="+flag);
-                boolean normal = StringUtils.equalsIgnoreCase(reason, "power_shutdown");
-                boolean battery = StringUtils.equalsIgnoreCase(reason, "battery");
-                if(normal || battery) {
-                    if (commClient.isLogin()) {
-                        AlarmPower powerOff = new AlarmPower(battery?3:2);   //2=关机报警; 3=自动关机报警
-                        if(battery) {
-                            int percent = BatteryDataSource.getInstance().getBatteryPercent();
-                            powerOff.setBatteryPercent(percent);
-                        }
-                        ResponseFuture rsp = commClient.sendRequest(powerOff);
-                        if (rsp == null) {
-                            log.e("send AlarmPower Power OFF failed");
-                        }
-                        IWriteFuture future = rsp.getWriteFuture();
-                        try {
-                            future.await(10, TimeUnit.SECONDS);
-                            log.i("Power OFF write=" + future.isWritten() + ",exception=" + future.getException());
-                            rsp.await(5, TimeUnit.SECONDS);
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                }
-                //直接销毁，内部会关闭网络连接
-                commClient.destroy();
             }
         }
     }
