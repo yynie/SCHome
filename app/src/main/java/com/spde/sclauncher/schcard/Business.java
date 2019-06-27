@@ -455,10 +455,11 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
         log.i("readSimInfo: IMEI and ICCID :" + imei + "," + iccid);
     }
 
-//    private void readDumySimInfo(){
-//        LocalDevice.getInstance().setImei("867400020316612");
-//        LocalDevice.getInstance().setIccid("89860318040211453836");
-//    }
+    private void readDumySimInfo(){
+        //在中移物联测试服上的账号
+        LocalDevice.getInstance().setImei("867400020316612");
+        LocalDevice.getInstance().setIccid("898600580918f6006851");
+    }
 
     private boolean canDoConfigCheck(int flag){
         ConfigCheck cc = configChecks.get(flag);
@@ -898,7 +899,7 @@ public class Business extends DefaultNetCommListener implements IoFutureListener
                 }/*else if(state == TelephonyManager.SIM_STATE_ABSENT){ //yynie for test
                     readDumySimInfo();
                     if(isSimInfoReady()) {
-                        NetCommClient.getIntance().startUp(); //startUp里面有保护，不用担心重复调用
+                        commClient.startUp(); //startUp里面有保护，不用担心重复调用
                     }
                     checkPowerOnReport();
                 }*/
