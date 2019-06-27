@@ -159,7 +159,7 @@ public class Home extends Activity implements OnBussinessEventListener {
         /** --START--  school card start  --START-- */
         // Intent intent = getIntent();
         // boolean isPoweron = intent.getBooleanExtra("isPowerOn", false);
-        boolean isPoweron = !SystemProperties.getBoolean("sys.scpoweron.marked", false);
+        boolean isPoweron = false;//!SystemProperties.getBoolean("sys.scpoweron.marked", false);
         log.i("onCreate: isPoweron= " + isPoweron);
 
         scBusiness = new Business(this);
